@@ -9,6 +9,7 @@ use windows_sys::Win32::System::Registry::{
 };
 
 use crate::formats::{self, Family};
+use crate::win::wide;
 
 const ROOT: &str = "SETTConverter";
 const FOLDER_KEY: &str = "Software\\Classes\\Directory\\shell\\SETTConverter";
@@ -26,72 +27,36 @@ pub fn install(exe: &Path) -> Result<()> {
             }
             let key = verb_key(extension);
             write_base(&key, &exe)?;
-            for (pt, target) in formats::menu_targets(family) {
-                write_command(&key, label(pt), &command(&exe, target))?;
+            for (pt, en, target) in formats::menu_targets(family) {
+                let label = if crate::lang::is_pt() { pt } else { en };
+                write_command(&key, label, &command(&exe, target))?;
             }
         }
     }
 
     write_base(FOLDER_KEY, &exe)?;
-    for (pt, target) in folder_targets() {
-        write_command(FOLDER_KEY, label(pt), &group_command(&exe, target, "%1"))?;
+    for (pt, en, target) in folder_targets() {
+        let label = if crate::lang::is_pt() { pt } else { en };
+        write_command(FOLDER_KEY, label, &group_command(&exe, target, "%1"))?;
     }
 
     // Right click on the empty area of a folder.
     write_base(BACKGROUND_KEY, &exe)?;
-    for (pt, target) in folder_targets() {
-        write_command(
-            BACKGROUND_KEY,
-            label(pt),
-            &group_command(&exe, target, "%V"),
-        )?;
+    for (pt, en, target) in folder_targets() {
+        let label = if crate::lang::is_pt() { pt } else { en };
+        write_command(BACKGROUND_KEY, label, &group_command(&exe, target, "%V"))?;
     }
     Ok(())
 }
 
-/// English text for the menu entries that are not plain format names.
-fn label(pt: &'static str) -> &'static str {
-    if crate::lang::is_pt() {
-        return pt;
-    }
-    match pt {
-        "GIF (animado)" => "GIF (animated)",
-        "APNG (animado)" => "APNG (animated)",
-        "MP4 (animação)" => "MP4 (animation)",
-        "SVG (vetorizar)" => "SVG (trace)",
-        "PNG (páginas)" => "PNG (pages)",
-        "JPG (páginas)" => "JPG (pages)",
-        "PNG (imagem longa)" => "PNG (long image)",
-        "TXT (texto)" => "TXT (text)",
-        "Dividir a cada 1 página" => "Split every 1 page",
-        "Dividir a cada 10 páginas" => "Split every 10 pages",
-        "Dividir a cada 50 páginas" => "Split every 50 pages",
-        "Rotacionar 90°" => "Rotate 90°",
-        "Rotacionar 180°" => "Rotate 180°",
-        "Comprimir" => "Compress",
-        "PNG (todos os frames)" => "PNG (all frames)",
-        "JPG (todos os frames)" => "JPG (all frames)",
-        "JPG (folha de contatos)" => "JPG (contact sheet)",
-        "Capa (JPG)" => "Cover (JPG)",
-        "Extrair aqui" => "Extract here",
-        "Compactar em ZIP" => "Compress to ZIP",
-        "Compactar em 7Z" => "Compress to 7Z",
-        "Compactar em TAR.GZ" => "Compress to TAR.GZ",
-        "Compactar em TAR.BZ2" => "Compress to TAR.BZ2",
-        "Compactar em TAR.XZ" => "Compress to TAR.XZ",
-        "Juntar PDFs da pasta" => "Merge PDFs in folder",
-        other => other,
-    }
-}
-
-fn folder_targets() -> [(&'static str, &'static str); 6] {
+fn folder_targets() -> [(&'static str, &'static str, &'static str); 6] {
     [
-        ("Compactar em ZIP", "zip"),
-        ("Compactar em 7Z", "7z"),
-        ("Compactar em TAR.GZ", "tar.gz"),
-        ("Compactar em TAR.BZ2", "tar.bz2"),
-        ("Compactar em TAR.XZ", "tar.xz"),
-        ("Juntar PDFs da pasta", "pdf-merge"),
+        ("Compactar em ZIP", "Compress to ZIP", "zip"),
+        ("Compactar em 7Z", "Compress to 7Z", "7z"),
+        ("Compactar em TAR.GZ", "Compress to TAR.GZ", "tar.gz"),
+        ("Compactar em TAR.BZ2", "Compress to TAR.BZ2", "tar.bz2"),
+        ("Compactar em TAR.XZ", "Compress to TAR.XZ", "tar.xz"),
+        ("Juntar PDFs da pasta", "Merge PDFs in folder", "pdf-merge"),
     ]
 }
 
@@ -276,6 +241,61 @@ fn delete_tree(key: &str) {
     }
 }
 
-fn wide(text: &str) -> Vec<u16> {
-    text.encode_utf16().chain(std::iter::once(0)).collect()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commands_encode_every_target_kind() {
+        let exe = r"C:\tools\SETTConverter.exe";
+        assert_eq!(
+            command(exe, "jpg"),
+            r#""C:\tools\SETTConverter.exe" convert --to jpg "%1""#
+        );
+        assert_eq!(
+            command(exe, "pdf-split:10"),
+            r#""C:\tools\SETTConverter.exe" convert --to pdf --split-every 10 "%1""#
+        );
+        assert_eq!(
+            command(exe, "frames:png"),
+            r#""C:\tools\SETTConverter.exe" convert --to png --frames "%1""#
+        );
+        assert_eq!(
+            command(exe, "rotate:90"),
+            r#""C:\tools\SETTConverter.exe" convert --to pdf --rotate 90 "%1""#
+        );
+        assert_eq!(
+            command(exe, "long:png"),
+            r#""C:\tools\SETTConverter.exe" convert --to png --long "%1""#
+        );
+        assert_eq!(
+            command(exe, "sheet:jpg"),
+            r#""C:\tools\SETTConverter.exe" convert --to jpg --sheet "%1""#
+        );
+        assert_eq!(
+            command(exe, "cover"),
+            r#""C:\tools\SETTConverter.exe" convert --to jpg --cover "%1""#
+        );
+        assert_eq!(
+            command(exe, "compress"),
+            r#""C:\tools\SETTConverter.exe" convert --to pdf "%1""#
+        );
+        assert_eq!(
+            command(exe, "extract"),
+            r#""C:\tools\SETTConverter.exe" extract "%1""#
+        );
+    }
+
+    #[test]
+    fn folder_commands_use_the_placeholder() {
+        let exe = r"C:\tools\SETTConverter.exe";
+        assert_eq!(
+            group_command(exe, "zip", "%V"),
+            r#""C:\tools\SETTConverter.exe" convert --to zip "%V""#
+        );
+        assert_eq!(
+            group_command(exe, "pdf-merge", "%V"),
+            r#""C:\tools\SETTConverter.exe" convert --to pdf --merge "%V""#
+        );
+    }
 }

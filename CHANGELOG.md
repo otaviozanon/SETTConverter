@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.2.2
+
+Internal cleanup, no behavior change:
+
+- `main.rs` split into `cli.rs` (argument parsing, help, tested) and `win.rs`
+  (wide strings, message box, TaskDialog).
+- `wide()` and `CREATE_NO_WINDOW` no longer duplicated across modules.
+- `Options.force` is now actually used; menu labels live next to their formats,
+  removing a duplicated translation table.
+- `tools.rs` download/hash code moved to `download.rs`.
+- `convert/pdf.rs` split into `render`, `edit` and `merge`.
+- `convert/media.rs` split into `mod`, `codecs` and `subtitle`.
+- Folder handling moved to `convert/folder.rs`.
+- Tests for the CLI parser and Explorer command strings (30 total).
+
 ## 1.2.1
 
 ### Fixed

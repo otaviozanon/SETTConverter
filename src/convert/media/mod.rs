@@ -1,4 +1,6 @@
-// Everything that runs through FFmpeg: video, audio, animated images, subtitles.
+// Video, audio and animated images through FFmpeg.
+pub mod codecs;
+pub mod subtitle;
 
 use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};
@@ -7,6 +9,9 @@ use std::process::{Command, Output};
 use crate::config::Config;
 use crate::convert::Options;
 use crate::lang::t;
+
+use codecs::{avif_crf, codecs, codecs_cpu, uses_video_codec};
+pub use subtitle::subtitle;
 
 pub fn convert(
     input: &Path,
@@ -142,44 +147,6 @@ pub fn audio_cover(input: &Path, cfg: &Config, out_dir: Option<&Path>) -> Result
     Ok(vec![out.into_path()])
 }
 
-pub fn subtitle(
-    input: &Path,
-    to: &str,
-    cfg: &Config,
-    out_dir: Option<&Path>,
-) -> Result<Vec<PathBuf>> {
-    let ffmpeg = crate::tools::ffmpeg(cfg)?;
-    let codec = match to {
-        "srt" => "srt",
-        "vtt" => "webvtt",
-        "ass" | "ssa" => "ass",
-        other => bail!(
-            "{} {other}",
-            t(
-                "destino de legenda desconhecido:",
-                "unknown subtitle target:"
-            )
-        ),
-    };
-    let dir = out_dir
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| crate::naming::parent_of(input));
-    let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), to)?;
-    let mut command = base_command(&ffmpeg);
-    command
-        .args(["-i"])
-        .arg(input)
-        .args(["-c:s", codec])
-        .arg(&out);
-    let output = crate::progress::run(
-        &label(t("Convertendo legenda", "Converting subtitle"), input),
-        &mut command,
-    )?;
-    ensure_success(&output)?;
-    Ok(vec![out.into_path()])
-}
-
-/// Animated GIF/WEBP/APNG source; FFmpeg keeps every frame.
 pub fn animated_image(
     input: &Path,
     to: &str,
@@ -229,7 +196,6 @@ pub fn animated_image(
     Ok(vec![out.into_path()])
 }
 
-/// AVIF decode/encode and other FFmpeg-only still images.
 pub fn still_image(
     input: &Path,
     to: &str,
@@ -265,11 +231,6 @@ pub fn still_image(
     )?;
     ensure_success(&output)?;
     Ok(vec![out.into_path()])
-}
-
-fn avif_crf(quality: u8) -> u8 {
-    // quality 1-100 -> CRF 55-10
-    (60 - (quality.min(100) as u16 * 50 / 100) as u8).clamp(10, 63)
 }
 
 fn base_command(ffmpeg: &Path) -> Command {
@@ -323,91 +284,6 @@ fn seconds(text: &str) -> Option<f64> {
         ),
         _ => None,
     }
-}
-
-fn uses_video_codec(to: &str) -> bool {
-    matches!(to, "mp4" | "mkv" | "mov" | "webm")
-}
-
-fn codecs(command: &mut Command, to: &str, options: &Options) -> Result<()> {
-    if options.gpu {
-        codecs_gpu(command, to)?;
-    } else {
-        codecs_cpu(command, to)?;
-    }
-    Ok(())
-}
-
-fn codecs_cpu(command: &mut Command, to: &str) -> Result<()> {
-    match to {
-        "mp4" => command.args([
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "23",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-movflags",
-            "+faststart",
-        ]),
-        "webm" => command.args([
-            "-c:v",
-            "libvpx-vp9",
-            "-crf",
-            "32",
-            "-b:v",
-            "0",
-            "-c:a",
-            "libopus",
-        ]),
-        "mkv" | "mov" => command.args(["-c:v", "libx264", "-crf", "23", "-c:a", "aac"]),
-        "avi" => command.args(["-c:v", "mpeg4", "-q:v", "5", "-c:a", "libmp3lame"]),
-        "gif" => command.args([
-            "-vf",
-            "fps=15,scale=480:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse",
-            "-loop",
-            "0",
-        ]),
-        "apng" => command.args(["-plays", "0", "-f", "apng"]),
-        "mp3" => command.args(["-vn", "-c:a", "libmp3lame", "-q:a", "2"]),
-        "m4a" => command.args(["-vn", "-c:a", "aac", "-b:a", "192k"]),
-        "wav" => command.args(["-vn", "-c:a", "pcm_s16le"]),
-        "flac" => command.args(["-vn", "-c:a", "flac"]),
-        "ogg" => command.args(["-vn", "-c:a", "libvorbis", "-q:a", "5"]),
-        "opus" => command.args(["-vn", "-c:a", "libopus", "-b:a", "128k"]),
-        "png" | "jpg" => command.args(["-frames:v", "1", "-q:v", "2"]),
-        other => bail!(
-            "{} {other}",
-            t("destino de mídia desconhecido:", "unknown media target:")
-        ),
-    };
-    Ok(())
-}
-
-fn codecs_gpu(command: &mut Command, to: &str) -> Result<()> {
-    match to {
-        "mp4" => command.args([
-            "-c:v",
-            "h264_nvenc",
-            "-preset",
-            "p5",
-            "-cq",
-            "23",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-movflags",
-            "+faststart",
-        ]),
-        "mkv" | "mov" => command.args(["-c:v", "h264_nvenc", "-cq", "23", "-c:a", "aac"]),
-        other => return codecs_cpu(command, other),
-    };
-    Ok(())
 }
 
 #[cfg(test)]

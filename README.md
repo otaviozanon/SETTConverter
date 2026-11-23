@@ -127,15 +127,20 @@ See `.github/workflows/release.yml` and `.github/workflows/ci.yml`.
 ## Layout
 
 ```
-src/main.rs        entry point, argument parsing, dialogs
+src/main.rs        entry point, dialogs, console output
+src/cli.rs         argument parsing and help
 src/formats.rs     extension to family, menu targets
 src/lang.rs        Windows display language (Portuguese/English)
-src/convert/       image, pdf, media, archive, document, font, jxl
+src/win.rs         wide strings, message box, TaskDialog
+src/download.rs    HTTP download with SHA-256 check
+src/convert/       image, document, font, jxl, folder
+src/convert/pdf/   render, edit, merge
+src/convert/media/ video/audio, codecs, subtitles
 src/menu.rs        HKCU context-menu registration
-src/naming.rs      output naming and collision handling
+src/naming.rs      output naming, collision handling, cleanup
 src/progress.rs    marquee progress dialog for long work
 src/config.rs      SETTConverter.toml
-src/tools.rs       one-time download of FFmpeg and 7-Zip
+src/tools.rs       locate and install FFmpeg/7-Zip
 assets/            icon sources and the embedded PDFium archive
 ```
 

@@ -12,13 +12,11 @@ use windows_sys::Win32::System::Console::GetConsoleWindow;
 use windows_sys::Win32::UI::Controls::{
     TASKDIALOGCONFIG, TDCBF_CANCEL_BUTTON, TDF_ALLOW_DIALOG_CANCELLATION, TDF_CALLBACK_TIMER,
     TDF_SHOW_PROGRESS_BAR, TDM_CLICK_BUTTON, TDM_SET_PROGRESS_BAR_MARQUEE, TDN_CREATED, TDN_TIMER,
-    TaskDialogIndirect,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{IDCANCEL, IDOK, SendMessageW};
 
 use crate::lang::t;
-
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+use crate::win::{CREATE_NO_WINDOW, task_dialog, wide};
 
 struct State {
     child: Option<Child>,
@@ -84,15 +82,7 @@ fn dialog(label: &str, state: &mut State) -> bool {
         ..Default::default()
     };
 
-    let mut pressed = 0i32;
-    let status = unsafe {
-        TaskDialogIndirect(
-            &config,
-            &mut pressed,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        )
-    };
+    let (status, pressed) = task_dialog(&config);
     // status < 0 means comctl32 v6 is missing: the dialog never opened, so
     // the work must simply run to the end.
     status >= 0 && pressed == IDCANCEL
@@ -117,10 +107,6 @@ unsafe extern "system" fn callback(
         }
     }
     0
-}
-
-fn wide(text: &str) -> Vec<u16> {
-    text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 struct DoneState {
@@ -183,15 +169,7 @@ fn dialog_done(label: &str, done: &Arc<AtomicBool>) -> bool {
         ..Default::default()
     };
 
-    let mut pressed = 0i32;
-    let status = unsafe {
-        TaskDialogIndirect(
-            &config,
-            &mut pressed,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        )
-    };
+    let (status, pressed) = task_dialog(&config);
     unsafe {
         drop(Box::from_raw(config.lpCallbackData as *mut DoneState));
     }
