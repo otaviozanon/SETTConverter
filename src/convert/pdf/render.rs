@@ -48,46 +48,47 @@ fn render_pages_inner(
     quality: u8,
     cancel: &AtomicBool,
 ) -> Result<Vec<PathBuf>> {
-    let pdfium = pdfium()?;
-    let document = pdfium
-        .load_pdf_from_file(input, None)
-        .with_context(|| format!("abrir PDF {}", input.display()))?;
-    let dir = out_dir
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| crate::naming::parent_of(input));
-    let folder =
-        crate::naming::claim_dir(&dir, &format!("{}_paginas", crate::naming::stem_of(input)))?;
+    with_pdfium(|pdfium| {
+        let document = pdfium
+            .load_pdf_from_file(input, None)
+            .with_context(|| format!("abrir PDF {}", input.display()))?;
+        let dir = out_dir
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| crate::naming::parent_of(input));
+        let folder =
+            crate::naming::claim_dir(&dir, &format!("{}_paginas", crate::naming::stem_of(input)))?;
 
-    let render = render_config(width, dpi);
+        let render = render_config(width, dpi);
 
-    let mut written = Vec::new();
-    for (index, page) in document.pages().iter().enumerate() {
-        if cancel.load(Ordering::Relaxed) {
-            bail!("{}", t("conversão cancelada", "conversion cancelled"));
+        let mut written = Vec::new();
+        for (index, page) in document.pages().iter().enumerate() {
+            if cancel.load(Ordering::Relaxed) {
+                bail!("{}", t("conversão cancelada", "conversion cancelled"));
+            }
+            let bitmap = page
+                .render_with_config(&render)
+                .with_context(|| format!("renderizar página {}", index + 1))?;
+            let (w, h) = (bitmap.width() as u32, bitmap.height() as u32);
+            let rgba = RgbaImage::from_raw(w, h, bitmap.as_rgba_bytes())
+                .context("bitmap da página em RGBA")?;
+            let out = folder.join(format!(
+                "{}_{}.{}",
+                crate::naming::stem_of(input),
+                index + 1,
+                to
+            ));
+            if to == "jpg" {
+                let mut file = std::io::BufWriter::new(std::fs::File::create(&out)?);
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, quality)
+                    .encode_image(&rgba)?;
+            } else {
+                rgba.save_with_format(&out, image::ImageFormat::Png)?;
+            }
+            written.push(out);
         }
-        let bitmap = page
-            .render_with_config(&render)
-            .with_context(|| format!("renderizar página {}", index + 1))?;
-        let (w, h) = (bitmap.width() as u32, bitmap.height() as u32);
-        let rgba = RgbaImage::from_raw(w, h, bitmap.as_rgba_bytes())
-            .context("bitmap da página em RGBA")?;
-        let out = folder.join(format!(
-            "{}_{}.{}",
-            crate::naming::stem_of(input),
-            index + 1,
-            to
-        ));
-        if to == "jpg" {
-            let mut file = std::io::BufWriter::new(std::fs::File::create(&out)?);
-            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, quality)
-                .encode_image(&rgba)?;
-        } else {
-            rgba.save_with_format(&out, image::ImageFormat::Png)?;
-        }
-        written.push(out);
-    }
-    let _ = folder.into_path();
-    Ok(written)
+        let _ = folder.into_path();
+        Ok(written)
+    })
 }
 
 pub fn render_long(
@@ -131,58 +132,59 @@ fn render_long_inner(
     quality: u8,
     cancel: &AtomicBool,
 ) -> Result<Vec<PathBuf>> {
-    let pdfium = pdfium()?;
-    let document = pdfium
-        .load_pdf_from_file(input, None)
-        .with_context(|| format!("abrir PDF {}", input.display()))?;
-    let render = render_config(width, dpi);
+    with_pdfium(|pdfium| {
+        let document = pdfium
+            .load_pdf_from_file(input, None)
+            .with_context(|| format!("abrir PDF {}", input.display()))?;
+        let render = render_config(width, dpi);
 
-    // shortcut: all pages stay in memory; a huge PDF can use a lot of RAM.
-    let mut pages = Vec::new();
-    for (index, page) in document.pages().iter().enumerate() {
-        if cancel.load(Ordering::Relaxed) {
-            bail!("{}", t("conversão cancelada", "conversion cancelled"));
+        // shortcut: all pages stay in memory; a huge PDF can use a lot of RAM.
+        let mut pages = Vec::new();
+        for (index, page) in document.pages().iter().enumerate() {
+            if cancel.load(Ordering::Relaxed) {
+                bail!("{}", t("conversão cancelada", "conversion cancelled"));
+            }
+            let bitmap = page
+                .render_with_config(&render)
+                .with_context(|| format!("renderizar página {}", index + 1))?;
+            let (width, height) = (bitmap.width() as u32, bitmap.height() as u32);
+            pages.push(
+                RgbaImage::from_raw(width, height, bitmap.as_rgba_bytes())
+                    .context("bitmap da página em RGBA")?,
+            );
         }
-        let bitmap = page
-            .render_with_config(&render)
-            .with_context(|| format!("renderizar página {}", index + 1))?;
-        let (width, height) = (bitmap.width() as u32, bitmap.height() as u32);
-        pages.push(
-            RgbaImage::from_raw(width, height, bitmap.as_rgba_bytes())
-                .context("bitmap da página em RGBA")?,
-        );
-    }
-    if pages.is_empty() {
-        bail!("{}", t("PDF sem páginas", "PDF has no pages"));
-    }
-    let width = pages.iter().map(|page| page.width()).max().unwrap_or(1);
-    let height: u64 = pages.iter().map(|page| page.height() as u64).sum();
-    if height > 30_000 {
-        bail!(
-            "{}",
-            t(
-                "imagem longa passaria de 30000 px de altura; use --width menor",
-                "long image would exceed 30000 px; use a smaller --width"
-            )
-        );
-    }
-    let mut canvas = RgbaImage::new(width, height as u32);
-    let mut y = 0i64;
-    for page in &pages {
-        image::imageops::overlay(&mut canvas, page, 0, y);
-        y += page.height() as i64;
-    }
+        if pages.is_empty() {
+            bail!("{}", t("PDF sem páginas", "PDF has no pages"));
+        }
+        let width = pages.iter().map(|page| page.width()).max().unwrap_or(1);
+        let height: u64 = pages.iter().map(|page| page.height() as u64).sum();
+        if height > 30_000 {
+            bail!(
+                "{}",
+                t(
+                    "imagem longa passaria de 30000 px de altura; use --width menor",
+                    "long image would exceed 30000 px; use a smaller --width"
+                )
+            );
+        }
+        let mut canvas = RgbaImage::new(width, height as u32);
+        let mut y = 0i64;
+        for page in &pages {
+            image::imageops::overlay(&mut canvas, page, 0, y);
+            y += page.height() as i64;
+        }
 
-    let dir = out_dir
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| crate::naming::parent_of(input));
-    let out = crate::naming::claim(
-        &dir,
-        &format!("{}_longa", crate::naming::stem_of(input)),
-        to,
-    )?;
-    crate::convert::image::save_image(&DynamicImage::ImageRgba8(canvas), &out, to, quality)?;
-    Ok(vec![out.into_path()])
+        let dir = out_dir
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| crate::naming::parent_of(input));
+        let out = crate::naming::claim(
+            &dir,
+            &format!("{}_longa", crate::naming::stem_of(input)),
+            to,
+        )?;
+        crate::convert::image::save_image(&DynamicImage::ImageRgba8(canvas), &out, to, quality)?;
+        Ok(vec![out.into_path()])
+    })
 }
 
 fn render_config(width: Option<u32>, dpi: Option<u32>) -> pdfium_render::prelude::PdfRenderConfig {
@@ -194,7 +196,19 @@ fn render_config(width: Option<u32>, dpi: Option<u32>) -> pdfium_render::prelude
     }
 }
 
-fn pdfium() -> Result<pdfium_render::prelude::Pdfium> {
+static PDFIUM: std::sync::Mutex<Option<pdfium_render::prelude::Pdfium>> =
+    std::sync::Mutex::new(None);
+
+/// PDFium bindings are process-global; load once and serialize access.
+fn with_pdfium<T>(work: impl FnOnce(&pdfium_render::prelude::Pdfium) -> Result<T>) -> Result<T> {
+    let mut guard = PDFIUM.lock().unwrap_or_else(|poison| poison.into_inner());
+    if guard.is_none() {
+        *guard = Some(load_pdfium()?);
+    }
+    work(guard.as_ref().expect("pdfium loaded"))
+}
+
+fn load_pdfium() -> Result<pdfium_render::prelude::Pdfium> {
     use pdfium_render::prelude::Pdfium;
     let dll = ensure_pdfium()?;
     match Pdfium::bind_to_library(&dll) {
