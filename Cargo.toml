@@ -23,7 +23,7 @@ lopdf = "0.47.0"
 pdf-extract = "0.12.1"
 pdfium-render = "0.9.6"
 rayon = "1.11.0"
-resvg = "0.45.1"
+resvg = "0.50.0"
 serde = { version = "1.0.229", features = ["derive"] }
 svg2pdf = "0.13.0"
 tar = "0.4.46"
