@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.5
+
+- `--force` writes to a temporary file and renames on success: a failed conversion
+  no longer destroys the existing output.
+- HEIC/HEIF and AVIF convert to PDF (decoded to a temporary PNG first).
+- `--to` is case-insensitive (`--to JPG` works).
+
 ## 1.2.4
 
 - HEIC/HEIF input: decodes to JPG, PNG, WEBP, AVIF, BMP, TIFF and the other image

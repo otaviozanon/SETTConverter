@@ -93,7 +93,7 @@ fn convert(rest: &[String]) -> Result<Command> {
                 .ok_or_else(|| anyhow::anyhow!("{arg} {}", t("sem valor", "needs a value")))
         };
         match arg.as_str() {
-            "--to" => options.to = value(&mut index)?,
+            "--to" => options.to = value(&mut index)?.to_lowercase(),
             "--out" => options.out = Some(PathBuf::from(value(&mut index)?)),
             "--quality" => options.quality = Some(value(&mut index)?.parse()?),
             "--split-every" => options.split_every = Some(value(&mut index)?.parse()?),
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn convert_reads_flags_and_inputs() {
         let Command::Convert { options, inputs } = parse(&args(&[
-            "convert", "--to", "jpg", "--size", "64x32", "--force", "a.png", "b.png",
+            "convert", "--to", "JPG", "--size", "64x32", "--force", "a.png", "b.png",
         ]))
         .unwrap() else {
             panic!("expected convert");

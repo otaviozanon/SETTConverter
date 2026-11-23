@@ -22,7 +22,7 @@ pub fn text(input: &Path, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
         .unwrap_or_else(|| crate::naming::parent_of(input));
     let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), "txt")?;
     std::fs::write(&out, text)?;
-    Ok(vec![out.into_path()])
+    Ok(vec![out.into_path()?])
 }
 
 pub fn split(input: &Path, every: usize, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
@@ -55,7 +55,7 @@ pub fn split(input: &Path, every: usize, out_dir: Option<&Path>) -> Result<Vec<P
         doc.renumber_objects();
         let out = crate::naming::claim(&dir, &format!("{stem}_p{start}-{end}"), "pdf")?;
         doc.save(&out)?;
-        written.push(out.into_path());
+        written.push(out.into_path()?);
         start = end + 1;
     }
     Ok(written)

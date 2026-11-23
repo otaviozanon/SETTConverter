@@ -161,7 +161,6 @@ The WOFF2 encoder inside `woofwoof` is Apache-2.0.
 ## Limitations
 
 - Static images to GIF/APNG produce a single frame; animated sources keep every frame.
-- AVIF/HEIC to PDF is not supported; convert to PNG/JPG first.
 - JXL and HEIC/HEIF are read-only; no JXL or HEIC encoder.
 - DOCX/ODT/EPUB extraction loses layout, tables and images.
 - PDF to image renders each page at 1600 px width unless `--width`/`--dpi` is given.

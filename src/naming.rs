@@ -22,6 +22,7 @@ fn overwrite() -> bool {
 /// `Deref` keeps the call sites using `&path` unchanged.
 pub struct Reserved {
     path: PathBuf,
+    final_path: Option<PathBuf>,
     dir: bool,
     keep: std::cell::Cell<bool>,
 }
@@ -30,6 +31,7 @@ impl Reserved {
     fn file(path: PathBuf, created: bool) -> Self {
         Self {
             path,
+            final_path: None,
             dir: false,
             keep: std::cell::Cell::new(!created),
         }
@@ -38,15 +40,32 @@ impl Reserved {
     fn folder(path: PathBuf, created: bool) -> Self {
         Self {
             path,
+            final_path: None,
             dir: true,
             keep: std::cell::Cell::new(!created),
         }
     }
 
-    /// Marks the output as finished and hands the path back.
-    pub fn into_path(self) -> PathBuf {
-        self.keep.set(true);
-        self.path.clone()
+    fn overwrite(temp: PathBuf, target: PathBuf) -> Self {
+        Self {
+            path: temp,
+            final_path: Some(target),
+            dir: false,
+            keep: std::cell::Cell::new(false),
+        }
+    }
+
+    /// Commits the output. In overwrite mode the temporary file replaces the
+    /// target only now, so a failed conversion keeps the old file intact.
+    pub fn into_path(mut self) -> Result<PathBuf> {
+        if let Some(target) = self.final_path.take() {
+            std::fs::rename(&self.path, &target)?;
+            self.keep.set(true);
+            Ok(target)
+        } else {
+            self.keep.set(true);
+            Ok(self.path.clone())
+        }
     }
 }
 
@@ -85,20 +104,32 @@ impl Drop for Reserved {
 /// Reserves a fresh file name by creating it exclusively; the caller then
 /// overwrites it. Two parallel conversions never get the same path.
 pub fn claim(dir: &Path, stem: &str, ext: &str) -> Result<Reserved> {
+    claim_file(dir, stem, ext, overwrite())
+}
+
+fn claim_file(dir: &Path, stem: &str, ext: &str, overwrite: bool) -> Result<Reserved> {
     let suffix = if ext.is_empty() {
         String::new()
     } else {
         format!(".{ext}")
     };
-    if overwrite() {
+    if overwrite {
         let target = dir.join(format!("{stem}{suffix}"));
-        OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&target)?;
-        // Never delete an existing file the user asked to overwrite.
-        return Ok(Reserved::file(target, false));
+        // Write next to the target (same volume) and rename on success.
+        for n in 0..10_000 {
+            let temp = dir.join(format!(".{stem}.{}-{n}.tmp{suffix}", std::process::id()));
+            match OpenOptions::new().write(true).create_new(true).open(&temp) {
+                Ok(_) => return Ok(Reserved::overwrite(temp, target)),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        bail!(
+            "{} {stem}{suffix} {} {}",
+            crate::lang::t("nenhum nome temporário para", "no temporary name for"),
+            crate::lang::t("em", "in"),
+            dir.display()
+        )
     }
     for n in 1..10_000 {
         let name = match n {
@@ -190,15 +221,38 @@ mod tests {
         let second = claim(&dir, "photo", "png").unwrap();
         assert_eq!(first.file_name().unwrap(), "photo.png");
         assert_eq!(second.file_name().unwrap(), "photo (2).png");
-        let _ = first.into_path();
-        let _ = second.into_path();
+        let _ = first.into_path().unwrap();
+        let _ = second.into_path().unwrap();
 
         let folder = claim_dir(&dir, "frames").unwrap();
         let again = claim_dir(&dir, "frames").unwrap();
         assert_eq!(folder.file_name().unwrap(), "frames");
         assert_eq!(again.file_name().unwrap(), "frames (2)");
-        let _ = folder.into_path();
-        let _ = again.into_path();
+        let _ = folder.into_path().unwrap();
+        let _ = again.into_path().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn overwrite_keeps_the_old_file_until_commit() {
+        let dir = std::env::temp_dir().join(format!("settconv-force-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("photo.jpg");
+        std::fs::write(&target, b"old").unwrap();
+
+        let reserved = claim_file(&dir, "photo", "jpg", true).unwrap();
+        assert_ne!(reserved.file_name().unwrap(), "photo.jpg");
+        std::fs::write(&*reserved, b"new").unwrap();
+        assert_eq!(reserved.into_path().unwrap(), target);
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+
+        // Dropping an unfinished claim leaves the previous file untouched.
+        let failing = claim_file(&dir, "photo", "jpg", true).unwrap();
+        std::fs::write(&*failing, b"partial").unwrap();
+        drop(failing);
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

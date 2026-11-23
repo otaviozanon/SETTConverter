@@ -24,7 +24,7 @@ pub fn convert(input: &Path, to: &str, out_dir: Option<&Path>) -> Result<Vec<Pat
         .unwrap_or_else(|| crate::naming::parent_of(input));
     let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), to)?;
     std::fs::write(&out, text)?;
-    Ok(vec![out.into_path()])
+    Ok(vec![out.into_path()?])
 }
 
 fn extract(input: &Path) -> Result<String> {

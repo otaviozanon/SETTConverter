@@ -42,5 +42,5 @@ pub fn subtitle(
         &mut command,
     )?;
     ensure_success(&output)?;
-    Ok(vec![out.into_path()])
+    Ok(vec![out.into_path()?])
 }

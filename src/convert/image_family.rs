@@ -2,6 +2,7 @@
 
 use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::config::Config;
 use crate::formats::{self, Family};
@@ -32,7 +33,7 @@ pub(super) fn convert(
                 "pdf",
             )?;
             image::to_pdf(&decoded, &out)?;
-            return Ok(vec![out.into_path()]);
+            return Ok(vec![out.into_path()?]);
         }
         if !formats::is_image_target(to) {
             bail!(
@@ -48,26 +49,20 @@ pub(super) fn convert(
             to,
         )?;
         image::save_image(&decoded, &out, to, quality)?;
-        return Ok(vec![out.into_path()]);
+        return Ok(vec![out.into_path()?]);
     }
 
-    // AVIF/HEIC/HEIF are decoded by FFmpeg; PDF would need a PNG step first.
+    // AVIF/HEIC/HEIF are decoded by FFmpeg; PDF needs a PNG step first.
     let ffmpeg_only = matches!(extension, "avif" | "heic" | "heif");
     if ffmpeg_only || to == "avif" {
-        if to == "pdf" {
-            bail!(
-                "{}",
-                t(
-                    "HEIC/AVIF para PDF não é suportado; converta para PNG ou JPG antes",
-                    "HEIC/AVIF to PDF is not supported; convert to PNG or JPG first"
-                )
-            );
-        }
-        if !(formats::is_image_target(to) || matches!(to, "apng" | "mp4" | "webm")) {
+        if !(formats::is_image_target(to) || matches!(to, "apng" | "mp4" | "webm" | "pdf")) {
             bail!(
                 "{} .{extension} -> .{to}",
                 t("imagem não suportada:", "unsupported image conversion:")
             );
+        }
+        if to == "pdf" {
+            return ffmpeg_to_pdf(input, config, out_dir, quality);
         }
         return media::still_image(input, to, config, out_dir, quality);
     }
@@ -97,4 +92,33 @@ pub(super) fn convert(
             t("imagem para não suportado:", "image to unsupported:")
         )
     }
+}
+
+static DECODE_TEMP: AtomicU32 = AtomicU32::new(0);
+
+/// HEIC/AVIF to PDF: decode to a temporary PNG, then use the in-process writer.
+fn ffmpeg_to_pdf(
+    input: &Path,
+    config: &Config,
+    out_dir: Option<&Path>,
+    quality: u8,
+) -> Result<Vec<PathBuf>> {
+    let temp = std::env::temp_dir().join(format!(
+        "settconv-decode-{}-{}",
+        std::process::id(),
+        DECODE_TEMP.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&temp)?;
+    let result = (|| -> Result<PathBuf> {
+        let decoded = media::still_image(input, "png", config, Some(&temp), quality)?;
+        let image = image::decode(&decoded[0])?;
+        let dir = out_dir
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| crate::naming::parent_of(input));
+        let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), "pdf")?;
+        image::to_pdf(&image, &out)?;
+        out.into_path()
+    })();
+    let _ = std::fs::remove_dir_all(&temp);
+    Ok(vec![result?])
 }

@@ -86,7 +86,7 @@ fn render_pages_inner(
             }
             written.push(out);
         }
-        let _ = folder.into_path();
+        let _ = folder.into_path()?;
         Ok(written)
     })
 }
@@ -183,7 +183,7 @@ fn render_long_inner(
             to,
         )?;
         crate::convert::image::save_image(&DynamicImage::ImageRgba8(canvas), &out, to, quality)?;
-        Ok(vec![out.into_path()])
+        Ok(vec![out.into_path()?])
     })
 }
 

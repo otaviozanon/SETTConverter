@@ -53,7 +53,7 @@ pub fn edit(input: &Path, out_dir: Option<&Path>, options: &Options) -> Result<V
         .unwrap_or_else(|| crate::naming::parent_of(input));
     let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), "pdf")?;
     doc.save(&out)?;
-    Ok(vec![out.into_path()])
+    Ok(vec![out.into_path()?])
 }
 
 fn watermark(doc: &mut Document, pages: &[ObjectId], text: &str) -> Result<()> {

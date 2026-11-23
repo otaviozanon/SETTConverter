@@ -23,16 +23,16 @@ pub fn convert(
 
     if to == "svg" {
         trace(input, &out)?;
-        return Ok(vec![out.into_path()]);
+        return Ok(vec![out.into_path()?]);
     }
     let mut img = decode(input)?;
     apply_size(&mut img, size);
     if to == "pdf" {
         to_pdf(&img, &out)?;
-        return Ok(vec![out.into_path()]);
+        return Ok(vec![out.into_path()?]);
     }
     save_image(&img, &out, to, quality)?;
-    Ok(vec![out.into_path()])
+    Ok(vec![out.into_path()?])
 }
 
 /// Scales to the requested box; a missing side keeps the aspect ratio.
@@ -129,7 +129,7 @@ pub fn convert_svg(
             )
         })?;
         std::fs::write(&out, pdf)?;
-        return Ok(vec![out.into_path()]);
+        return Ok(vec![out.into_path()?]);
     }
 
     let svg_size = tree.size().to_int_size();
@@ -144,7 +144,7 @@ pub fn convert_svg(
     let mut image = DynamicImage::ImageRgba8(rgba);
     apply_size(&mut image, size);
     save_image(&image, &out, to, quality)?;
-    Ok(vec![out.into_path()])
+    Ok(vec![out.into_path()?])
 }
 
 pub fn save_image(img: &DynamicImage, out: &Path, to: &str, quality: u8) -> Result<()> {

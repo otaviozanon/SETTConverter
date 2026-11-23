@@ -49,7 +49,7 @@ pub fn extract(input: &Path, cfg: &Config, out_dir: Option<&Path>) -> Result<Vec
             )
         ),
     }
-    Ok(vec![folder.into_path()])
+    Ok(vec![folder.into_path()?])
 }
 
 fn extract_zip(input: &Path, folder: &Path) -> Result<()> {
@@ -83,7 +83,7 @@ fn single_stream<R: std::io::Read>(reader: R, base: &Path, name: &str) -> Result
     let out = crate::naming::claim(base, name, "")?;
     let mut file = File::create(&out)?;
     std::io::copy(&mut BufReader::new(reader), &mut file)?;
-    out.into_path();
+    out.into_path()?;
     Ok(())
 }
 

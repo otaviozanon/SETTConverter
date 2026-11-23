@@ -39,7 +39,7 @@ pub fn convert(
             &mut command,
         )?;
         ensure_success(&output)?;
-        return Ok(vec![out.into_path()]);
+        return Ok(vec![out.into_path()?]);
     }
 
     let (out, pattern) = if options.frames {
@@ -107,10 +107,10 @@ pub fn convert(
         if written.is_empty() {
             bail!("FFmpeg não escreveu nenhum frame");
         }
-        let _ = out.into_path();
+        let _ = out.into_path()?;
         Ok(written)
     } else {
-        Ok(vec![out.into_path()])
+        Ok(vec![out.into_path()?])
     }
 }
 
@@ -144,7 +144,7 @@ pub fn audio_cover(input: &Path, cfg: &Config, out_dir: Option<&Path>) -> Result
             )
         );
     }
-    Ok(vec![out.into_path()])
+    Ok(vec![out.into_path()?])
 }
 
 pub fn animated_image(
@@ -193,7 +193,7 @@ pub fn animated_image(
         &mut command,
     )?;
     ensure_success(&output)?;
-    Ok(vec![out.into_path()])
+    Ok(vec![out.into_path()?])
 }
 
 pub fn still_image(
@@ -240,7 +240,7 @@ pub fn still_image(
         &mut command,
     )?;
     ensure_success(&output)?;
-    Ok(vec![out.into_path()])
+    Ok(vec![out.into_path()?])
 }
 
 fn base_command(ffmpeg: &Path) -> Command {

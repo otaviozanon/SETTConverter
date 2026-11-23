@@ -23,12 +23,12 @@ pub(super) fn folder(options: &Options, dir: &Path, config: &Config) -> Result<V
         "zip" => {
             let out = crate::naming::claim(&out_dir, &stem, "zip")?;
             super::archive::pack_zip(std::slice::from_ref(&dir.to_path_buf()), &out)?;
-            return Ok(vec![out.into_path()]);
+            return Ok(vec![out.into_path()?]);
         }
         "7z" => {
             let out = crate::naming::claim(&out_dir, &stem, "7z")?;
             super::archive::pack_7z(std::slice::from_ref(&dir.to_path_buf()), &out, config)?;
-            return Ok(vec![out.into_path()]);
+            return Ok(vec![out.into_path()?]);
         }
         "pdf" => {
             let images = files_in(dir, |family| {
@@ -43,13 +43,13 @@ pub(super) fn folder(options: &Options, dir: &Path, config: &Config) -> Result<V
             }
             let out = crate::naming::claim(&out_dir, &stem, "pdf")?;
             super::pdf::from_images(&images, &out)?;
-            return Ok(vec![out.into_path()]);
+            return Ok(vec![out.into_path()?]);
         }
         other => {
             if let Some(kind) = super::archive::TarKind::of(other) {
                 let out = crate::naming::claim(&out_dir, &stem, kind.extension())?;
                 super::archive::pack_tar(std::slice::from_ref(&dir.to_path_buf()), &out, kind)?;
-                return Ok(vec![out.into_path()]);
+                return Ok(vec![out.into_path()?]);
             }
         }
     }

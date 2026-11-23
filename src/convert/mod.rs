@@ -165,7 +165,7 @@ fn one(options: &Options, input: &Path, config: &Config) -> Result<Vec<PathBuf>>
                         kind.extension(),
                     )?;
                     archive::repack(input, &out, kind)?;
-                    Ok(vec![out.into_path()])
+                    Ok(vec![out.into_path()?])
                 }
                 None => bail!(
                     "{} .{other}",
@@ -211,5 +211,5 @@ fn merge_pdfs(options: &Options, inputs: &[PathBuf]) -> Result<Vec<PathBuf>> {
     };
     let out = crate::naming::claim(&dir, &stem, "pdf")?;
     pdf::merge(&pdfs, &out)?;
-    Ok(vec![out.into_path()])
+    Ok(vec![out.into_path()?])
 }
