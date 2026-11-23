@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.2.1
+
+### Fixed
+
+- Failed or cancelled conversions delete the reserved output instead of leaving a 0 KB file.
+- `--quality` is honored when rendering PDF pages to JPG.
+- `--at` seeks before the input, so a frame from a long video is fast.
+- The manifest is long-path aware (Windows still needs `LongPathsEnabled`).
+- PDF merge keeps the first document's title/author metadata.
+- Extracted archives no longer create `folder\folder`; ZIP/TAR/7z store folder contents.
+- `--out` with a trailing backslash works.
+- Progress dialogs no longer report "cancelled" when comctl32 v6 is unavailable.
+- Huge images fail with a clear message instead of a decoder allocation error.
+
+### Added
+
+- `--force` and `overwrite = true` reuse the plain output name.
+- `out_dir` in the settings file for a default output folder.
+- Progress and Cancel for in-process PDF rendering.
+- SHA-256 check of the downloaded tools bundle; versioned tools URL with fallback.
+- CI on every push/PR, `cargo audit` and Dependabot.
+- Winget singleton manifest published with each release.
+- Interface follows the Windows language: Portuguese (Brazil) or English.
+- Tests for FFmpeg argument building and archive round trips.
+- `docs/REAL-FILES.md` manual checklist.
+
 ## 1.2.0
 
 ### Added

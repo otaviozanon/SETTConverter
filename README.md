@@ -20,7 +20,8 @@ process exits as soon as the file is written.
 | Archive  | extract `zip` `tar` `gz` `bz2` `xz` (`7z` `rar` via 7-Zip); create `zip` `7z` `tar.gz` `tar.bz2` `tar.xz` |
 
 Output goes next to the source and never overwrites: `photo (2).png`. Parallel
-conversions never pick the same name, and phone photos are rotated by their EXIF tag.
+conversions never pick the same name, phone photos are rotated by their EXIF tag, and a
+failed conversion removes the reserved output instead of leaving an empty file.
 A folder can be converted as a batch, packed into an archive, or turned into one PDF.
 
 Images, vectors, PDF and archives are handled in-process (`image`, `resvg`, `svg2pdf`,
@@ -28,7 +29,11 @@ PDFium, `lopdf`, `zip`, `jxl-oxide`). Video, audio, subtitles, animated images, 
 `7z`/`rar` use FFmpeg and 7-Zip. If the tool is already on this PC (PATH,
 `Program Files\7-Zip`, WinGet/Scoop/Chocolatey), the existing copy is used and nothing is
 downloaded. Otherwise it is fetched once (about 40 MB) into
-`%LOCALAPPDATA%\SETTConverter\tools`, so nothing has to be installed by hand.
+`%LOCALAPPDATA%\SETTConverter\tools`, so nothing has to be installed by hand. The
+download is checked against the SHA-256 published with the release.
+
+The interface (dialogs, menu and messages) follows the Windows display language:
+Portuguese (Brazil) or English. The README stays in English.
 
 ## Requirements
 
@@ -44,7 +49,12 @@ To build:
 ## Downloads
 
 Grab `SETTConverter.exe` from the [latest release](https://github.com/otaviozanon/SETTConverter/releases/latest).
-The release also carries `tools-win64.zip` (FFmpeg and 7-Zip), which the exe fetches on demand.
+The release also carries `tools-win64.zip` (FFmpeg and 7-Zip), its `tools-win64.sha256`,
+`SHA256SUMS` and a winget singleton manifest (`OtavioZanon.SETTConverter.yaml`):
+
+```powershell
+winget install --manifest .\OtavioZanon.SETTConverter.yaml
+```
 
 ## Install the Explorer menu
 
@@ -58,14 +68,14 @@ On Windows 11 the entry lives under **Show more options**.
 
 ```
 SETTConverter convert --to <target> [--out DIR] [--quality 1-100] [--frames] FILE...
-SETTConverter convert --to jpg --size 1920x1080 FILE.png
+SETTConverter convert --to jpg --size 1920x1080 --force FILE.png
 SETTConverter convert --to png|jpg --width 1600 --dpi 300 FILE.pdf
 SETTConverter convert --to png --long FILE.pdf
 SETTConverter convert --to pdf DIR                      (one page per image)
 SETTConverter convert --to pdf --merge DIR
 SETTConverter convert --to pdf --split-every 10 FILE.pdf
-SETTConverter convert --to pdf --rotate 90 --watermark RASCUNHO FILE.pdf
-SETTConverter convert --to pdf --title TEXTO --author TEXTO FILE.pdf
+SETTConverter convert --to pdf --rotate 90 --watermark DRAFT FILE.pdf
+SETTConverter convert --to pdf --title TEXT --author TEXT FILE.pdf
 SETTConverter convert --to png --at 00:01:30 FILE.mp4
 SETTConverter convert --to mp4 --start 10 --end 60 FILE.mkv
 SETTConverter convert --to jpg --sheet FILE.mp4
@@ -77,7 +87,7 @@ SETTConverter version
 ```
 
 Long video/archive conversions show a progress dialog with **Cancel** when started from
-Explorer; from a terminal they stay quiet.
+Explorer; PDF rendering does too. From a terminal they stay quiet.
 
 ## Configuration
 
@@ -88,11 +98,14 @@ starts commented out; remove the `#` from what you want to change:
 ```toml
 jpg_quality = 90
 webp_quality = 85
+out_dir = "C:\\Converted"
+overwrite = false
 ffmpeg = "C:\\tools\\ffmpeg.exe"
 seven_zip = "C:\\Program Files\\7-Zip\\7z.exe"
 ```
 
 A malformed file is reported with its path instead of being silently ignored.
+`overwrite = true` (or `--force`) reuses the plain name instead of ` (2)`.
 
 ## Build
 
@@ -106,19 +119,21 @@ PDFium ships inside the exe and is extracted to `%TEMP%\settconv\pdfium` on firs
 ## Releases
 
 Pushing a `v*` tag (or running the workflow manually) runs `cargo fmt --check`,
-`cargo clippy -D warnings` and the tests on `windows-latest`, then publishes
-`SETTConverter.exe`, `tools-win64.zip` and `SHA256SUMS`.
-See `.github/workflows/release.yml`.
+`cargo clippy -D warnings` and the tests on `windows-latest`, then publishes the exe,
+the tools bundle, its SHA-256, `SHA256SUMS` and the winget manifest.
+Every push and pull request also runs CI with `cargo audit`.
+See `.github/workflows/release.yml` and `.github/workflows/ci.yml`.
 
 ## Layout
 
 ```
 src/main.rs        entry point, argument parsing, dialogs
 src/formats.rs     extension to family, menu targets
+src/lang.rs        Windows display language (Portuguese/English)
 src/convert/       image, pdf, media, archive, document, font, jxl
 src/menu.rs        HKCU context-menu registration
 src/naming.rs      output naming and collision handling
-src/progress.rs    marquee progress dialog for external tools
+src/progress.rs    marquee progress dialog for long work
 src/config.rs      SETTConverter.toml
 src/tools.rs       one-time download of FFmpeg and 7-Zip
 assets/            icon sources and the embedded PDFium archive
@@ -144,7 +159,9 @@ The WOFF2 encoder inside `woofwoof` is Apache-2.0.
 - JXL is read-only; no JXL encoder.
 - DOCX/ODT/EPUB extraction loses layout, tables and images.
 - PDF to image renders each page at 1600 px width unless `--width`/`--dpi` is given.
-- A failed conversion can leave the reserved output name as an empty file.
+- Paths longer than 260 characters need `LongPathsEnabled` in Windows; the manifest is
+  long-path aware, but FFmpeg/PDFium still depend on the system policy.
 - No OCR, Office rendering, 3D, CAD, metadata editing beyond PDF title/author, translation
   or upscale support.
 - FFmpeg (GPLv3) and 7-Zip (LGPL) are downloaded on demand, not embedded in the exe.
+- The executable is not code-signed, so Windows SmartScreen may warn on first run.

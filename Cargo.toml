@@ -1,6 +1,6 @@
 [package]
 name = "settconverter"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2024"
 description = "Conversor de arquivos portátil para Windows"
 repository = "https://github.com/otaviozanon/SETTConverter"
@@ -29,13 +29,14 @@ svg2pdf = "0.13.0"
 tar = "0.4.46"
 toml = "1.2.2"
 vtracer = "0.6.5"
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Registry", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Registry", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging"] }
 walkdir = "2.5.0"
 xz2 = "0.1.7"
 zip = "9.8.1"
 jxl-oxide = "0.12.6"
 quick-xml = "0.42.0"
 woofwoof = "1.0.2"
+sha2 = "0.11.1"
 
 [profile.release]
 opt-level = "s"

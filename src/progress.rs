@@ -4,6 +4,9 @@ use anyhow::{Context, Result, bail};
 use std::io::Read;
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::System::Console::GetConsoleWindow;
 use windows_sys::Win32::UI::Controls::{
@@ -12,6 +15,8 @@ use windows_sys::Win32::UI::Controls::{
     TaskDialogIndirect,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{IDCANCEL, IDOK, SendMessageW};
+
+use crate::lang::t;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -28,10 +33,14 @@ pub fn run(label: &str, command: &mut Command) -> Result<Output> {
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
     if unsafe { !GetConsoleWindow().is_null() } {
-        return command.output().context("executar a conversão");
+        return command
+            .output()
+            .context(t("executar a conversão", "running the conversion"));
     }
 
-    let mut child = command.spawn().context("iniciar a conversão")?;
+    let mut child = command
+        .spawn()
+        .context(t("iniciar a conversão", "starting the conversion"))?;
     // Drain stderr in parallel: a full pipe would block the tool while the dialog waits.
     let stderr = child.stderr.take();
     let reader = std::thread::spawn(move || {
@@ -48,9 +57,11 @@ pub fn run(label: &str, command: &mut Command) -> Result<Output> {
     if cancelled {
         let _ = child.kill();
         let _ = child.wait();
-        bail!("conversão cancelada");
+        bail!("{}", t("conversão cancelada", "conversion cancelled"));
     }
-    let status = child.wait().context("terminar a conversão")?;
+    let status = child
+        .wait()
+        .context(t("terminar a conversão", "finishing the conversion"))?;
     let stderr = reader.join().unwrap_or_default();
     Ok(Output {
         status,
@@ -82,8 +93,9 @@ fn dialog(label: &str, state: &mut State) -> bool {
             std::ptr::null_mut(),
         )
     };
-    // status < 0 means comctl32 v6 is missing: the dialog never opened.
-    status < 0 || pressed == IDCANCEL
+    // status < 0 means comctl32 v6 is missing: the dialog never opened, so
+    // the work must simply run to the end.
+    status >= 0 && pressed == IDCANCEL
 }
 
 unsafe extern "system" fn callback(
@@ -109,4 +121,97 @@ unsafe extern "system" fn callback(
 
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+struct DoneState {
+    done: Arc<AtomicBool>,
+}
+
+/// Runs in-process work (PDF rendering) behind the same marquee dialog.
+/// The worker checks `cancel` between pages and stops early.
+pub fn run_cancellable<T, F>(label: &str, work: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce(&AtomicBool) -> Result<T> + Send + 'static,
+{
+    if unsafe { !GetConsoleWindow().is_null() } {
+        let flag = AtomicBool::new(false);
+        return work(&flag);
+    }
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let done = Arc::new(AtomicBool::new(false));
+    let (sender, receiver) = mpsc::channel();
+    let worker_cancel = Arc::clone(&cancel);
+    let worker_done = Arc::clone(&done);
+    let handle = std::thread::spawn(move || {
+        let result = work(&worker_cancel);
+        let _ = sender.send(result);
+        worker_done.store(true, Ordering::Relaxed);
+    });
+
+    let cancelled = dialog_done(label, &done);
+    if cancelled {
+        cancel.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+        bail!("{}", t("conversão cancelada", "conversion cancelled"));
+    }
+    let result = receiver.recv().unwrap_or_else(|_| {
+        Err(anyhow::anyhow!(
+            "{}",
+            t("conversão falhou", "conversion failed")
+        ))
+    });
+    let _ = handle.join();
+    result
+}
+
+fn dialog_done(label: &str, done: &Arc<AtomicBool>) -> bool {
+    let title = wide("SETTConverter");
+    let text = wide(label);
+    let state = Box::new(DoneState {
+        done: Arc::clone(done),
+    });
+    let config = TASKDIALOGCONFIG {
+        cbSize: std::mem::size_of::<TASKDIALOGCONFIG>() as u32,
+        dwFlags: TDF_SHOW_PROGRESS_BAR | TDF_CALLBACK_TIMER | TDF_ALLOW_DIALOG_CANCELLATION,
+        dwCommonButtons: TDCBF_CANCEL_BUTTON,
+        pszWindowTitle: title.as_ptr(),
+        pszMainInstruction: text.as_ptr(),
+        pfCallback: Some(done_callback),
+        lpCallbackData: Box::into_raw(state) as isize,
+        ..Default::default()
+    };
+
+    let mut pressed = 0i32;
+    let status = unsafe {
+        TaskDialogIndirect(
+            &config,
+            &mut pressed,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    unsafe {
+        drop(Box::from_raw(config.lpCallbackData as *mut DoneState));
+    }
+    status >= 0 && pressed == IDCANCEL
+}
+
+unsafe extern "system" fn done_callback(
+    hwnd: HWND,
+    msg: u32,
+    _wparam: usize,
+    _lparam: isize,
+    data: isize,
+) -> i32 {
+    unsafe {
+        let state = &*(data as *const DoneState);
+        if msg == TDN_CREATED as u32 {
+            SendMessageW(hwnd, TDM_SET_PROGRESS_BAR_MARQUEE as u32, 1, 0);
+        } else if msg == TDN_TIMER as u32 && state.done.load(Ordering::Relaxed) {
+            SendMessageW(hwnd, TDM_CLICK_BUTTON as u32, IDOK as usize, 0);
+        }
+    }
+    0
 }

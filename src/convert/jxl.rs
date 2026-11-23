@@ -4,17 +4,26 @@ use anyhow::{Context, Result};
 use image::{DynamicImage, RgbaImage};
 use std::path::Path;
 
+use crate::lang::t;
+
 pub fn decode(input: &Path) -> Result<DynamicImage> {
     use jxl_oxide::{EnumColourEncoding, JxlImage, RenderingIntent};
 
-    let file = std::fs::File::open(input).with_context(|| format!("abrir {}", input.display()))?;
+    let file = std::fs::File::open(input)
+        .with_context(|| format!("{} {}", t("abrir", "open"), input.display()))?;
     let mut image = JxlImage::builder()
         .read(std::io::BufReader::new(file))
-        .map_err(|error| anyhow::anyhow!("ler JXL {}: {error}", input.display()))?;
+        .map_err(|error| {
+            anyhow::anyhow!("{} {}: {error}", t("ler JXL", "read JXL"), input.display())
+        })?;
     image.request_color_encoding(EnumColourEncoding::srgb(RenderingIntent::Perceptual));
-    let render = image
-        .render_frame(0)
-        .map_err(|error| anyhow::anyhow!("decodificar JXL {}: {error}", input.display()))?;
+    let render = image.render_frame(0).map_err(|error| {
+        anyhow::anyhow!(
+            "{} {}: {error}",
+            t("decodificar JXL", "decode JXL"),
+            input.display()
+        )
+    })?;
 
     let frame = render.image_all_channels();
     let (width, height, channels) = (frame.width(), frame.height(), frame.channels());

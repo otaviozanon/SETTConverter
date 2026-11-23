@@ -6,6 +6,7 @@ use std::process::{Command, Output};
 
 use crate::config::Config;
 use crate::convert::Options;
+use crate::lang::t;
 
 pub fn convert(
     input: &Path,
@@ -28,9 +29,12 @@ pub fn convert(
             .arg(input)
             .args(["-vf", "fps=1/2,scale=320:-1,tile=4x4", "-frames:v", "1"])
             .arg(&out);
-        let output = crate::progress::run(&label("Folha de contatos", input), &mut command)?;
+        let output = crate::progress::run(
+            &label(t("Folha de contatos", "Contact sheet"), input),
+            &mut command,
+        )?;
         ensure_success(&output)?;
-        return Ok(vec![out]);
+        return Ok(vec![out.into_path()]);
     }
 
     let (out, pattern) = if options.frames {
@@ -45,6 +49,10 @@ pub fn convert(
     if let Some(start) = &options.start {
         command.arg("-ss").arg(start);
     }
+    // Fast seek for a single frame, before decoding the whole file.
+    if let Some(at) = &options.at {
+        command.arg("-ss").arg(at);
+    }
     command.arg("-i").arg(input);
 
     if options.strip {
@@ -56,16 +64,14 @@ pub fn convert(
 
     if let Some(pattern) = &pattern {
         command.args(["-fps_mode", "passthrough"]).arg(pattern);
-    } else if let Some(at) = &options.at {
-        command
-            .args(["-ss", at, "-frames:v", "1", "-q:v", "2"])
-            .arg(&out);
+    } else if options.at.is_some() {
+        command.args(["-frames:v", "1", "-q:v", "2"]).arg(&out);
     } else {
         codecs(&mut command, to, options)?;
         command.arg(&out);
     }
 
-    let output = crate::progress::run(&label("Convertendo", input), &mut command)?;
+    let output = crate::progress::run(&label(t("Convertendo", "Converting"), input), &mut command)?;
     if !output.status.success() && options.gpu && uses_video_codec(to) {
         // Hardware encoder missing or busy: same job on the CPU.
         let mut fallback = base_command(&ffmpeg);
@@ -81,7 +87,8 @@ pub fn convert(
         }
         codecs_cpu(&mut fallback, to)?;
         fallback.arg(&out);
-        let retry = crate::progress::run(&label("Convertendo", input), &mut fallback)?;
+        let retry =
+            crate::progress::run(&label(t("Convertendo", "Converting"), input), &mut fallback)?;
         ensure_success(&retry)?;
     } else {
         ensure_success(&output)?;
@@ -95,9 +102,10 @@ pub fn convert(
         if written.is_empty() {
             bail!("FFmpeg não escreveu nenhum frame");
         }
+        let _ = out.into_path();
         Ok(written)
     } else {
-        Ok(vec![out])
+        Ok(vec![out.into_path()])
     }
 }
 
@@ -117,12 +125,21 @@ pub fn audio_cover(input: &Path, cfg: &Config, out_dir: Option<&Path>) -> Result
         .arg(input)
         .args(["-map", "0:v:0", "-frames:v", "1", "-q:v", "2"])
         .arg(&out);
-    let output = crate::progress::run(&label("Extraindo capa", input), &mut command)?;
+    let output = crate::progress::run(
+        &label(t("Extraindo capa", "Extracting cover"), input),
+        &mut command,
+    )?;
     if !output.status.success() {
         let _ = std::fs::remove_file(&out);
-        bail!("o arquivo não tem capa embutida");
+        bail!(
+            "{}",
+            t(
+                "o arquivo não tem capa embutida",
+                "the file has no embedded cover"
+            )
+        );
     }
-    Ok(vec![out])
+    Ok(vec![out.into_path()])
 }
 
 pub fn subtitle(
@@ -136,7 +153,13 @@ pub fn subtitle(
         "srt" => "srt",
         "vtt" => "webvtt",
         "ass" | "ssa" => "ass",
-        other => bail!("destino de legenda desconhecido: {other}"),
+        other => bail!(
+            "{} {other}",
+            t(
+                "destino de legenda desconhecido:",
+                "unknown subtitle target:"
+            )
+        ),
     };
     let dir = out_dir
         .map(Path::to_path_buf)
@@ -148,9 +171,12 @@ pub fn subtitle(
         .arg(input)
         .args(["-c:s", codec])
         .arg(&out);
-    let output = crate::progress::run(&label("Convertendo legenda", input), &mut command)?;
+    let output = crate::progress::run(
+        &label(t("Convertendo legenda", "Converting subtitle"), input),
+        &mut command,
+    )?;
     ensure_success(&output)?;
-    Ok(vec![out])
+    Ok(vec![out.into_path()])
 }
 
 /// Animated GIF/WEBP/APNG source; FFmpeg keeps every frame.
@@ -188,13 +214,19 @@ pub fn animated_image(
             "+faststart",
         ]),
         "webm" => command.args(["-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0"]),
-        other => bail!("animação para .{other} não suportada"),
+        other => bail!(
+            "{} .{other}",
+            t("animação para não suportada:", "animation to unsupported:")
+        ),
     };
     let _ = options;
     command.arg(&out);
-    let output = crate::progress::run(&label("Convertendo animação", input), &mut command)?;
+    let output = crate::progress::run(
+        &label(t("Convertendo animação", "Converting animation"), input),
+        &mut command,
+    )?;
     ensure_success(&output)?;
-    Ok(vec![out])
+    Ok(vec![out.into_path()])
 }
 
 /// AVIF decode/encode and other FFmpeg-only still images.
@@ -227,9 +259,12 @@ pub fn still_image(
         command.args(["-frames:v", "1"]);
     }
     command.arg(&out);
-    let output = crate::progress::run(&label("Convertendo imagem", input), &mut command)?;
+    let output = crate::progress::run(
+        &label(t("Convertendo imagem", "Converting image"), input),
+        &mut command,
+    )?;
     ensure_success(&output)?;
-    Ok(vec![out])
+    Ok(vec![out.into_path()])
 }
 
 fn avif_crf(quality: u8) -> u8 {
@@ -248,7 +283,8 @@ fn ensure_success(output: &Output) -> Result<()> {
         Ok(())
     } else {
         bail!(
-            "FFmpeg falhou: {}",
+            "{} {}",
+            t("FFmpeg falhou:", "FFmpeg failed:"),
             String::from_utf8_lossy(&output.stderr).trim()
         )
     }
@@ -344,7 +380,10 @@ fn codecs_cpu(command: &mut Command, to: &str) -> Result<()> {
         "ogg" => command.args(["-vn", "-c:a", "libvorbis", "-q:a", "5"]),
         "opus" => command.args(["-vn", "-c:a", "libopus", "-b:a", "128k"]),
         "png" | "jpg" => command.args(["-frames:v", "1", "-q:v", "2"]),
-        other => bail!("destino de mídia desconhecido: {other}"),
+        other => bail!(
+            "{} {other}",
+            t("destino de mídia desconhecido:", "unknown media target:")
+        ),
     };
     Ok(())
 }
@@ -387,5 +426,37 @@ mod tests {
     fn avif_quality_maps_to_crf() {
         assert!(avif_crf(90) < avif_crf(30));
         assert!((10..=63).contains(&avif_crf(100)));
+    }
+
+    #[test]
+    fn cpu_arguments_cover_video_and_audio() {
+        let mut command = Command::new("ffmpeg");
+        codecs_cpu(&mut command, "mp4").unwrap();
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert!(args.contains(&"libx264".to_string()));
+        assert!(args.contains(&"+faststart".to_string()));
+
+        let mut command = Command::new("ffmpeg");
+        codecs_cpu(&mut command, "mp3").unwrap();
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert!(args.contains(&"-vn".to_string()));
+        assert!(args.contains(&"libmp3lame".to_string()));
+    }
+
+    #[test]
+    fn gif_arguments_use_the_palette_filter() {
+        let mut command = Command::new("ffmpeg");
+        codecs_cpu(&mut command, "gif").unwrap();
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert!(args.iter().any(|arg| arg.contains("palettegen")));
     }
 }

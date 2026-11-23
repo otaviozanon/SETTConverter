@@ -74,6 +74,8 @@ jobs:
           Copy-Item 7zip/7z.exe, 7zip/7z.dll, 7zip/License.txt tools/
 
           Compress-Archive -Path tools/* -DestinationPath dist/tools-win64.zip
+          $zipHash = (Get-FileHash dist/tools-win64.zip -Algorithm SHA256).Hash.ToLower()
+          "$zipHash  tools-win64.zip" | Set-Content dist/tools-win64.sha256 -Encoding ascii
 
           Get-FileHash dist/SETTConverter.exe, dist/tools-win64.zip -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
@@ -86,6 +88,31 @@ jobs:
           name: settconv-win64
           path: dist/*
 
+      - name: Winget manifest
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart("v")
+          $hash = (Get-FileHash dist/SETTConverter.exe -Algorithm SHA256).Hash.ToLower()
+          @"
+          PackageIdentifier: OtavioZanon.SETTConverter
+          PackageVersion: $version
+          PackageName: SETTConverter
+          Publisher: Otavio Zanon
+          License: MIT
+          ShortDescription: Portable file converter for Windows
+          PackageUrl: https://github.com/otaviozanon/SETTConverter
+          Installers:
+          - Architecture: x64
+            InstallerType: portable
+            InstallerUrl: https://github.com/otaviozanon/SETTConverter/releases/download/$env:GITHUB_REF_NAME/SETTConverter.exe
+            InstallerSha256: $hash
+            Commands:
+            - SETTConverter
+          ManifestType: singleton
+          ManifestVersion: 1.6.0
+          "@ | Set-Content dist/OtavioZanon.SETTConverter.yaml -Encoding utf8
+
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -93,5 +120,7 @@ jobs:
           files: |
             dist/SETTConverter.exe
             dist/tools-win64.zip
+            dist/tools-win64.sha256
             dist/SHA256SUMS
+            dist/OtavioZanon.SETTConverter.yaml
           generate_release_notes: true

@@ -6,12 +6,14 @@
 mod config;
 mod convert;
 mod formats;
+mod lang;
 mod menu;
 mod naming;
 mod progress;
 mod tools;
 
 use anyhow::{Result, bail};
+use lang::t;
 use std::path::PathBuf;
 use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{
@@ -57,13 +59,16 @@ fn main() {
 
 /// A panic used to exit silently under `windows_subsystem`; log it and tell the user.
 fn crash(info: &std::panic::PanicHookInfo<'_>) {
-    let text = format!("SETTConverter travou.\n\n{info}");
+    let text = format!(
+        "{}\n\n{info}",
+        t("SETTConverter travou.", "SETTConverter crashed.")
+    );
     let log = std::env::temp_dir().join("SETTConverter-crash.log");
     let _ = std::fs::write(&log, &text);
     if unsafe { GetConsoleWindow().is_null() } {
         message_box(
             "SETTConverter",
-            &format!("{text}\n\nDetalhes: {}", log.display()),
+            &format!("{text}\n\n{}: {}", t("Detalhes", "Details"), log.display()),
             MB_OK | MB_ICONERROR,
         );
     }
@@ -78,16 +83,24 @@ fn install_by_double_click() -> Result<String> {
     let installed = menu::is_installed();
     let title = wide("SETTConverter");
     let instruction = wide(if installed {
-        "SETTConverter já está no menu do Windows."
+        t(
+            "SETTConverter já está no menu do Windows.",
+            "SETTConverter is already in the Windows menu.",
+        )
     } else {
-        "SETTConverter não está no menu do Windows."
+        t(
+            "SETTConverter não está no menu do Windows.",
+            "SETTConverter is not in the Windows menu.",
+        )
     });
-    let content = wide(
+    let content = wide(t(
         "Botao direito em um arquivo > Mostrar mais opcoes > SETTConverter.\n\n\
          O menu aponta para o caminho deste exe. Se mover o arquivo, instale de novo.",
-    );
-    let install_label = wide("Instalar no menu");
-    let remove_label = wide("Remover do menu");
+        "Right-click a file > Show more options > SETTConverter.\n\n\
+         The menu points at this exe path. If you move the file, install again.",
+    ));
+    let install_label = wide(t("Instalar no menu", "Install menu"));
+    let remove_label = wide(t("Remover do menu", "Remove menu"));
     let buttons = [
         TASKDIALOG_BUTTON {
             nButtonID: 1,
@@ -126,9 +139,15 @@ fn install_by_double_click() -> Result<String> {
     if status < 0 {
         // Sem comctl32 v6 (manifesto) o TaskDialog nao existe: cai no Sim/Nao.
         let question = if installed {
-            "Remover SETTConverter do menu?"
+            t(
+                "Remover SETTConverter do menu?",
+                "Remove SETTConverter from the menu?",
+            )
         } else {
-            "Adicionar SETTConverter ao menu?"
+            t(
+                "Adicionar SETTConverter ao menu?",
+                "Add SETTConverter to the menu?",
+            )
         };
         pressed = if confirm(question) == IDYES {
             if installed { 2 } else { 1 }
@@ -142,7 +161,10 @@ fn install_by_double_click() -> Result<String> {
             menu::install(&std::env::current_exe()?)?;
             message_box(
                 "SETTConverter",
-                "Menu instalado.\n\nBotao direito em um arquivo > Mostrar mais opcoes > SETTConverter.",
+                t(
+                    "Menu instalado.\n\nBotao direito em um arquivo > Mostrar mais opcoes > SETTConverter.",
+                    "Menu installed.\n\nRight-click a file > Show more options > SETTConverter.",
+                ),
                 MB_OK | MB_ICONINFORMATION,
             );
         }
@@ -205,17 +227,32 @@ fn run(args: &[String]) -> Result<String> {
         "menu" => match rest.first().map(String::as_str) {
             Some("install") => {
                 menu::install(&std::env::current_exe()?)?;
-                Ok("Menu SETTConverter instalado. Abra o Explorer: botao direito > Mostrar mais opcoes.".into())
+                Ok(t(
+                    "Menu SETTConverter instalado. Abra o Explorer: botao direito > Mostrar mais opcoes.",
+                    "SETTConverter menu installed. Open Explorer: right-click > Show more options.",
+                )
+                .into())
             }
             Some("uninstall") => {
                 menu::uninstall()?;
-                Ok("Menu SETTConverter removido.".into())
+                Ok(t(
+                    "Menu SETTConverter removido.",
+                    "SETTConverter menu removed.",
+                )
+                .into())
             }
-            _ => bail!("uso: SETTConverter menu install|uninstall"),
+            _ => bail!(
+                "{}",
+                t(
+                    "uso: SETTConverter menu install|uninstall",
+                    "usage: SETTConverter menu install|uninstall"
+                )
+            ),
         },
         "extract" => {
             let cfg = config::load()?;
             let mut out = None;
+            let mut force = false;
             let mut inputs: Vec<PathBuf> = Vec::new();
             let mut index = 0;
             while index < rest.len() {
@@ -223,46 +260,30 @@ fn run(args: &[String]) -> Result<String> {
                 match arg.as_str() {
                     "--out" => {
                         index += 1;
-                        let value = rest
-                            .get(index)
-                            .ok_or_else(|| anyhow::anyhow!("--out sem valor"))?;
+                        let value = rest.get(index).ok_or_else(|| {
+                            anyhow::anyhow!("{}", t("--out sem valor", "--out needs a value"))
+                        })?;
                         out = Some(PathBuf::from(value));
                     }
-                    other if other.starts_with('-') => bail!("opcao desconhecida: {other}"),
+                    "--force" => force = true,
+                    other if other.starts_with('-') => {
+                        bail!("{} {other}", t("opcao desconhecida:", "unknown option:"))
+                    }
                     other => inputs.push(PathBuf::from(other)),
                 }
                 index += 1;
             }
             if inputs.is_empty() {
-                bail!("nenhum arquivo informado");
+                bail!("{}", t("nenhum arquivo informado", "no input files"));
             }
-            report(convert::run(
-                &convert::Options {
-                    to: "extract".into(),
-                    out,
-                    quality: None,
-                    split_every: None,
-                    merge: false,
-                    frames: false,
-                    width: None,
-                    dpi: None,
-                    size: None,
-                    strip: false,
-                    at: None,
-                    start: None,
-                    end: None,
-                    rotate: None,
-                    title: None,
-                    author: None,
-                    watermark: None,
-                    long: false,
-                    sheet: false,
-                    cover: false,
-                    gpu: false,
-                },
-                &inputs,
-                &cfg,
-            )?)
+            naming::set_overwrite(force || cfg.overwrite.unwrap_or(false));
+            let out = out.or_else(|| cfg.out_dir.clone().map(PathBuf::from));
+            let options = convert::Options {
+                to: "extract".into(),
+                out,
+                ..Default::default()
+            };
+            report(convert::run(&options, &inputs, &cfg)?)
         }
         "convert" => {
             let cfg = config::load()?;
@@ -287,6 +308,7 @@ fn run(args: &[String]) -> Result<String> {
             let mut sheet = false;
             let mut cover = false;
             let mut gpu = false;
+            let mut force = false;
             let mut inputs: Vec<PathBuf> = Vec::new();
             let mut index = 0;
 
@@ -318,62 +340,68 @@ fn run(args: &[String]) -> Result<String> {
                     "--sheet" => sheet = true,
                     "--cover" => cover = true,
                     "--gpu" => gpu = true,
+                    "--force" => force = true,
                     "--merge" => merge = true,
                     "--frames" => frames = true,
-                    other if other.starts_with('-') => bail!("opcao desconhecida: {other}"),
+                    other if other.starts_with('-') => {
+                        bail!("{} {other}", t("opcao desconhecida:", "unknown option:"))
+                    }
                     other => inputs.push(PathBuf::from(other)),
                 }
                 index += 1;
             }
 
             let Some(to) = to else {
-                bail!("falta --to <formato>");
+                bail!("{}", t("falta --to <formato>", "missing --to <format>"));
             };
             if inputs.is_empty() {
-                bail!("nenhum arquivo informado");
+                bail!("{}", t("nenhum arquivo informado", "no input files"));
             }
-            report(convert::run(
-                &convert::Options {
-                    to,
-                    out,
-                    quality,
-                    split_every,
-                    merge,
-                    frames,
-                    width,
-                    dpi,
-                    size,
-                    strip,
-                    at,
-                    start,
-                    end,
-                    rotate,
-                    title,
-                    author,
-                    watermark,
-                    long,
-                    sheet,
-                    cover,
-                    gpu,
-                },
-                &inputs,
-                &cfg,
-            )?)
+            naming::set_overwrite(force || cfg.overwrite.unwrap_or(false));
+            let mut options = convert::Options {
+                to,
+                out,
+                ..Default::default()
+            };
+            options.out = options
+                .out
+                .or_else(|| cfg.out_dir.clone().map(PathBuf::from));
+            options.quality = quality;
+            options.split_every = split_every;
+            options.merge = merge;
+            options.frames = frames;
+            options.width = width;
+            options.dpi = dpi;
+            options.size = size;
+            options.strip = strip;
+            options.at = at;
+            options.start = start;
+            options.end = end;
+            options.rotate = rotate;
+            options.title = title;
+            options.author = author;
+            options.watermark = watermark;
+            options.long = long;
+            options.sheet = sheet;
+            options.cover = cover;
+            options.gpu = gpu;
+            options.force = force;
+            report(convert::run(&options, &inputs, &cfg)?)
         }
         "formats" => Ok(formats_help()),
         "version" | "-V" | "--version" => {
             Ok(format!("SETTConverter {}", env!("CARGO_PKG_VERSION")))
         }
         "-h" | "--help" | "help" => help(),
-        other => bail!("comando desconhecido: {other}"),
+        other => bail!("{} {other}", t("comando desconhecido:", "unknown command:")),
     }
 }
 
 fn report(written: Vec<PathBuf>) -> Result<String> {
     if written.is_empty() {
-        return Ok("nada foi escrito".into());
+        return Ok(t("nada foi escrito", "nothing was written").into());
     }
-    let mut text = String::from("pronto:");
+    let mut text = String::from(t("pronto:", "done:"));
     for path in &written {
         text.push_str("\n  ");
         text.push_str(&path.display().to_string());
@@ -391,23 +419,32 @@ fn parse_size(text: &str) -> Result<(u32, u32)> {
 
 fn help() -> Result<String> {
     Ok(format!(
-        "SETTConverter {}\n\n{}\n\n\
-         Opcoes: --out DIR --size 1920x1080 --quality 1-100 --strip\n\
-         \x20        --at 00:01:30 --start 10 --end 60 --gpu\n\
+        "SETTConverter {}\n\n{}\n\n{}\n\
+         \x20        --at 00:01:30 --start 10 --end 60 --gpu --force\n\
          \x20        --width 1600 --dpi 300 --long --sheet\n\
          \x20        --rotate 90 --title TEXTO --author TEXTO --watermark TEXTO\n\n\
-         Menu do Explorer: SETTConverter menu install | uninstall\n\
-         Config: SETTConverter\\Settings\\SETTConverter.toml ao lado do exe \
-         (jpg_quality, webp_quality, ffmpeg, seven_zip)\n\
-         FFmpeg e 7-Zip: baixados uma vez em %LOCALAPPDATA%\\SETTConverter\\tools",
+         {}: SETTConverter menu install | uninstall\n\
+         {}: SETTConverter\\Settings\\SETTConverter.toml ({})\n\
+         {}: %LOCALAPPDATA%\\SETTConverter\\tools",
         env!("CARGO_PKG_VERSION"),
-        formats_help()
+        formats_help(),
+        t(
+            "Opcoes: --out DIR --size 1920x1080 --quality 1-100 --strip",
+            "Options: --out DIR --size 1920x1080 --quality 1-100 --strip"
+        ),
+        t("Menu do Explorer", "Explorer menu"),
+        t("Config", "Config"),
+        t(
+            "jpg_quality, webp_quality, out_dir, overwrite, ffmpeg, seven_zip",
+            "jpg_quality, webp_quality, out_dir, overwrite, ffmpeg, seven_zip"
+        ),
+        t("FFmpeg e 7-Zip", "FFmpeg and 7-Zip"),
     ))
 }
 
 fn formats_help() -> String {
     use formats::Family::*;
-    let mut text = String::from("alvos por familia:");
+    let mut text = String::from(t("alvos por familia:", "targets by family:"));
     for family in [
         Image, Vector, Pdf, Video, Audio, Subtitle, Document, Font, Archive,
     ] {

@@ -26,23 +26,62 @@ pub fn install(exe: &Path) -> Result<()> {
             }
             let key = verb_key(extension);
             write_base(&key, &exe)?;
-            for (label, target) in formats::menu_targets(family) {
-                write_command(&key, label, &command(&exe, target))?;
+            for (pt, target) in formats::menu_targets(family) {
+                write_command(&key, label(pt), &command(&exe, target))?;
             }
         }
     }
 
     write_base(FOLDER_KEY, &exe)?;
-    for (label, target) in folder_targets() {
-        write_command(FOLDER_KEY, label, &group_command(&exe, target, "%1"))?;
+    for (pt, target) in folder_targets() {
+        write_command(FOLDER_KEY, label(pt), &group_command(&exe, target, "%1"))?;
     }
 
     // Right click on the empty area of a folder.
     write_base(BACKGROUND_KEY, &exe)?;
-    for (label, target) in folder_targets() {
-        write_command(BACKGROUND_KEY, label, &group_command(&exe, target, "%V"))?;
+    for (pt, target) in folder_targets() {
+        write_command(
+            BACKGROUND_KEY,
+            label(pt),
+            &group_command(&exe, target, "%V"),
+        )?;
     }
     Ok(())
+}
+
+/// English text for the menu entries that are not plain format names.
+fn label(pt: &'static str) -> &'static str {
+    if crate::lang::is_pt() {
+        return pt;
+    }
+    match pt {
+        "GIF (animado)" => "GIF (animated)",
+        "APNG (animado)" => "APNG (animated)",
+        "MP4 (animação)" => "MP4 (animation)",
+        "SVG (vetorizar)" => "SVG (trace)",
+        "PNG (páginas)" => "PNG (pages)",
+        "JPG (páginas)" => "JPG (pages)",
+        "PNG (imagem longa)" => "PNG (long image)",
+        "TXT (texto)" => "TXT (text)",
+        "Dividir a cada 1 página" => "Split every 1 page",
+        "Dividir a cada 10 páginas" => "Split every 10 pages",
+        "Dividir a cada 50 páginas" => "Split every 50 pages",
+        "Rotacionar 90°" => "Rotate 90°",
+        "Rotacionar 180°" => "Rotate 180°",
+        "Comprimir" => "Compress",
+        "PNG (todos os frames)" => "PNG (all frames)",
+        "JPG (todos os frames)" => "JPG (all frames)",
+        "JPG (folha de contatos)" => "JPG (contact sheet)",
+        "Capa (JPG)" => "Cover (JPG)",
+        "Extrair aqui" => "Extract here",
+        "Compactar em ZIP" => "Compress to ZIP",
+        "Compactar em 7Z" => "Compress to 7Z",
+        "Compactar em TAR.GZ" => "Compress to TAR.GZ",
+        "Compactar em TAR.BZ2" => "Compress to TAR.BZ2",
+        "Compactar em TAR.XZ" => "Compress to TAR.XZ",
+        "Juntar PDFs da pasta" => "Merge PDFs in folder",
+        other => other,
+    }
 }
 
 fn folder_targets() -> [(&'static str, &'static str); 6] {

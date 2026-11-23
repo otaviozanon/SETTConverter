@@ -6,14 +6,24 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 
 use crate::config::Config;
+use crate::lang::t;
 
-// Assets of the latest release; built by .github/workflows/release.yml.
-const TOOLS_URL: &str = concat!(
-    env!("CARGO_PKG_REPOSITORY"),
-    "/releases/latest/download/tools-win64.zip"
-);
+// Assets of this release; built by .github/workflows/release.yml.
+const TOOLS_FILE: &str = "tools-win64.zip";
 const FILES: &[&str] = &["ffmpeg.exe", "7z.exe", "7z.dll"];
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn tool_urls() -> [String; 2] {
+    let repo = env!("CARGO_PKG_REPOSITORY");
+    [
+        // Versioned first: an old exe never installs a newer, incompatible bundle.
+        format!(
+            "{repo}/releases/download/v{}/{TOOLS_FILE}",
+            env!("CARGO_PKG_VERSION")
+        ),
+        format!("{repo}/releases/latest/download/{TOOLS_FILE}"),
+    ]
+}
 
 pub fn ffmpeg(cfg: &Config) -> Result<PathBuf> {
     find(cfg.ffmpeg.as_deref(), "ffmpeg.exe")
@@ -41,7 +51,13 @@ fn find(configured: Option<&str>, name: &str) -> Result<PathBuf> {
     if cached.is_file() {
         Ok(cached)
     } else {
-        bail!("{name} não encontrado após o download")
+        bail!(
+            "{} {name}",
+            t(
+                "não encontrado após o download:",
+                "not found after download:"
+            )
+        )
     }
 }
 
@@ -107,11 +123,17 @@ pub fn ensure() -> Result<PathBuf> {
     }
     notice();
     let zip_path = std::env::temp_dir().join(format!("settconv-tools-{}.zip", std::process::id()));
-    let result = download(TOOLS_URL, &zip_path).and_then(|()| install(&zip_path, &dir));
+    let result = download_bundle(&zip_path).and_then(|()| install(&zip_path, &dir));
     let _ = std::fs::remove_file(&zip_path);
     result?;
     if !complete(&dir) {
-        bail!("download das ferramentas incompleto");
+        bail!(
+            "{}",
+            t(
+                "download das ferramentas incompleto",
+                "tools download incomplete"
+            )
+        );
     }
     verify(&dir)?;
     Ok(dir)
@@ -144,7 +166,13 @@ fn lock(dir: &Path) -> Result<File> {
             return Ok(unsafe { File::from_raw_handle(handle as _) });
         }
         if std::time::Instant::now() > deadline {
-            bail!("outra conversão está baixando as ferramentas; tente de novo em instantes");
+            bail!(
+                "{}",
+                t(
+                    "outra conversão está baixando as ferramentas; tente de novo em instantes",
+                    "another conversion is downloading the tools; try again in a moment"
+                )
+            );
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
@@ -160,7 +188,6 @@ fn install(zip_path: &Path, dir: &Path) -> Result<()> {
     std::fs::create_dir_all(dir)?;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
-        // Only the three known names, and only from the archive root.
         let Ok(entry_name) = entry.name() else {
             continue;
         };
@@ -183,6 +210,95 @@ fn install(zip_path: &Path, dir: &Path) -> Result<()> {
     Ok(())
 }
 
+fn download_bundle(out: &Path) -> Result<()> {
+    let mut last: Option<anyhow::Error> = None;
+    for url in tool_urls() {
+        match download(&url, out).and_then(|()| verify_hash(out, &url)) {
+            Ok(()) => return Ok(()),
+            Err(error) => last = Some(error),
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("download failed")))
+}
+
+fn verify_hash(zip: &Path, url: &str) -> Result<()> {
+    let checksum_url = format!("{}.sha256", url.trim_end_matches(".zip"));
+    let expected = fetch_text(&checksum_url)?;
+    let expected = expected
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_lowercase();
+    let actual = sha256_file(zip)?;
+    if expected.is_empty() || expected != actual {
+        bail!(
+            "{} {}",
+            t("SHA-256 não confere para", "SHA-256 mismatch for"),
+            zip.display()
+        );
+    }
+    Ok(())
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1 << 20];
+    loop {
+        let read = std::io::Read::read(&mut file, &mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+fn fetch_text(url: &str) -> Result<String> {
+    let output = std::process::Command::new("curl.exe")
+        .args(["-L", "--fail", "--silent", "--show-error"])
+        .arg(url)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    match output {
+        Ok(result) if result.status.success() => {
+            Ok(String::from_utf8_lossy(&result.stdout).to_string())
+        }
+        Ok(result) => bail!(
+            "{} {}",
+            t("download falhou:", "download failed:"),
+            String::from_utf8_lossy(&result.stderr).trim()
+        ),
+        Err(_) => {
+            let script = format!(
+                "(Invoke-WebRequest -UseBasicParsing -Uri '{}').Content",
+                url.replace('\'', "''")
+            );
+            let result = std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .context(t(
+                    "executar curl nem PowerShell",
+                    "running curl or PowerShell",
+                ))?;
+            if !result.status.success() {
+                bail!(
+                    "{} {}",
+                    t("download falhou:", "download failed:"),
+                    String::from_utf8_lossy(&result.stderr).trim()
+                );
+            }
+            Ok(String::from_utf8_lossy(&result.stdout).to_string())
+        }
+    }
+}
+
 fn download(url: &str, out: &Path) -> Result<()> {
     let curl = std::process::Command::new("curl.exe")
         .args(["-L", "--fail", "--silent", "--show-error", "--output"])
@@ -193,7 +309,8 @@ fn download(url: &str, out: &Path) -> Result<()> {
     match curl {
         Ok(result) if result.status.success() && out.is_file() => return Ok(()),
         Ok(result) => bail!(
-            "download falhou: {}",
+            "{} {}",
+            t("download falhou:", "download failed:"),
             String::from_utf8_lossy(&result.stderr).trim()
         ),
         // Windows 10 anterior a 1803 não tem curl.exe: cai no PowerShell.
@@ -208,10 +325,14 @@ fn download(url: &str, out: &Path) -> Result<()> {
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
-        .context("executar curl nem PowerShell")?;
+        .context(t(
+            "executar curl nem PowerShell",
+            "running curl or PowerShell",
+        ))?;
     if !result.status.success() || !out.is_file() {
         bail!(
-            "download falhou: {}",
+            "{} {}",
+            t("download falhou:", "download failed:"),
             String::from_utf8_lossy(&result.stderr).trim()
         );
     }
@@ -232,8 +353,19 @@ fn verify(dir: &Path) -> Result<()> {
                 attempts += 1;
                 std::thread::sleep(std::time::Duration::from_millis(400));
             }
-            Ok(_) => bail!("o ffmpeg baixado não executou"),
-            Err(error) => return Err(error).context("executar o ffmpeg baixado"),
+            Ok(_) => bail!(
+                "{}",
+                t(
+                    "o ffmpeg baixado não executou",
+                    "the downloaded ffmpeg did not run"
+                )
+            ),
+            Err(error) => {
+                return Err(error).context(t(
+                    "executar o ffmpeg baixado",
+                    "running the downloaded ffmpeg",
+                ));
+            }
         }
     }
 }
@@ -246,10 +378,12 @@ fn notice() {
         return;
     }
     let title = wide("SETTConverter");
-    let text = wide(
+    let text = wide(t(
         "Baixando FFmpeg e 7-Zip (cerca de 40 MB) uma única vez.\n\n\
          Pode levar alguns minutos.",
-    );
+        "Downloading FFmpeg and 7-Zip (about 40 MB) once.\n\n\
+         This can take a few minutes.",
+    ));
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 const FILE: &str = "SETTConverter.toml";
 
-const TEMPLATE: &str = r##"# SETTConverter - configuracoes opcionais.
+const TEMPLATE_PT: &str = r##"# SETTConverter - configuracoes opcionais.
 # Remova o "#" da linha que quiser mudar. Sem este arquivo, os padroes valem.
 
 # Qualidade JPG (1-100)
@@ -15,10 +15,38 @@ const TEMPLATE: &str = r##"# SETTConverter - configuracoes opcionais.
 # Qualidade WEBP (1-100)
 # webp_quality = 85
 
+# Pasta de saida padrao (vazio = ao lado do arquivo)
+# out_dir = "C:\\Convertidos"
+
+# Sobrescrever arquivos existentes em vez de criar "nome (2)"
+# overwrite = false
+
 # Caminho proprio do FFmpeg (vazio = procura no PATH e baixa se faltar)
 # ffmpeg = "C:\\tools\\ffmpeg.exe"
 
 # Caminho proprio do 7-Zip (vazio = procura no PATH e baixa se faltar)
+# seven_zip = "C:\\Program Files\\7-Zip\\7z.exe"
+"##;
+
+const TEMPLATE_EN: &str = r##"# SETTConverter - optional settings.
+# Remove the "#" from the line you want to change. Defaults apply without this file.
+
+# JPG quality (1-100)
+# jpg_quality = 90
+
+# WEBP quality (1-100)
+# webp_quality = 85
+
+# Default output folder (empty = next to the source file)
+# out_dir = "C:\\Converted"
+
+# Overwrite existing files instead of creating "name (2)"
+# overwrite = false
+
+# Custom FFmpeg path (empty = look in PATH and download when missing)
+# ffmpeg = "C:\\tools\\ffmpeg.exe"
+
+# Custom 7-Zip path (empty = look in PATH and download when missing)
 # seven_zip = "C:\\Program Files\\7-Zip\\7z.exe"
 "##;
 
@@ -28,6 +56,8 @@ pub struct Config {
     pub webp_quality: Option<u8>,
     pub ffmpeg: Option<String>,
     pub seven_zip: Option<String>,
+    pub out_dir: Option<String>,
+    pub overwrite: Option<bool>,
 }
 
 impl Config {
@@ -72,7 +102,12 @@ pub fn ensure() {
         return;
     }
     for dir in dirs() {
-        if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(dir.join(FILE), TEMPLATE).is_ok()
+        let template = if crate::lang::is_pt() {
+            TEMPLATE_PT
+        } else {
+            TEMPLATE_EN
+        };
+        if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(dir.join(FILE), template).is_ok()
         {
             return;
         }
@@ -87,8 +122,10 @@ fn load_at(file: &Path) -> Result<Config> {
     if !file.is_file() {
         return Ok(Config::default());
     }
-    let text = std::fs::read_to_string(file).with_context(|| format!("ler {}", file.display()))?;
-    toml::from_str(&text).with_context(|| format!("corrigir {}", file.display()))
+    let text = std::fs::read_to_string(file)
+        .with_context(|| format!("{} {}", crate::lang::t("ler", "read"), file.display()))?;
+    toml::from_str(&text)
+        .with_context(|| format!("{} {}", crate::lang::t("corrigir", "fix"), file.display()))
 }
 
 #[cfg(test)]
@@ -108,7 +145,10 @@ mod tests {
             std::env::temp_dir().join(format!("settconv-broken-{}.toml", std::process::id()));
         std::fs::write(&file, "jpg_quality = ").unwrap();
         let error = load_at(&file).unwrap_err().to_string();
-        assert!(error.contains("corrigir"), "{error}");
+        assert!(
+            error.contains("corrigir") || error.contains("fix"),
+            "{error}"
+        );
         let _ = std::fs::remove_file(&file);
     }
 }

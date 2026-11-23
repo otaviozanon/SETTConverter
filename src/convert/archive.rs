@@ -10,6 +10,7 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::config::Config;
+use crate::lang::t;
 
 pub fn extract(input: &Path, cfg: &Config, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
     let ext = crate::formats::extension_of(input);
@@ -40,9 +41,15 @@ pub fn extract(input: &Path, cfg: &Config, out_dir: Option<&Path>) -> Result<Vec
             &crate::naming::stem_of(input),
         )?,
         "7z" | "rar" => seven_zip(input, cfg, &folder)?,
-        other => bail!("extração não suportada para .{other}"),
+        other => bail!(
+            "{} .{other}",
+            t(
+                "extração não suportada para",
+                "extraction not supported for"
+            )
+        ),
     }
-    Ok(vec![folder])
+    Ok(vec![folder.into_path()])
 }
 
 /// Archive format for `pack_tar` / `repack`.
@@ -82,8 +89,8 @@ pub fn pack_zip(inputs: &[PathBuf], out: &Path) -> Result<()> {
 
     for input in inputs {
         if input.is_dir() {
-            let base = input.parent().unwrap_or_else(|| Path::new("."));
-            add_tree(&mut zip, base, input, options)?;
+            // Contents at the archive root: extracting makes one folder, not folder/folder.
+            add_tree(&mut zip, input, input, options)?;
         } else {
             let name = input
                 .file_name()
@@ -116,7 +123,19 @@ fn tar_into<W: std::io::Write>(inputs: &[PathBuf], writer: W) -> Result<()> {
     let mut tar = tar::Builder::new(writer);
     for input in inputs {
         if input.is_dir() {
-            tar.append_dir_all(input.file_name().unwrap_or_default(), input)?;
+            // Contents at the root, matching the ZIP behaviour.
+            for entry in WalkDir::new(input) {
+                let entry = entry?;
+                let relative = entry.path().strip_prefix(input)?;
+                if relative.as_os_str().is_empty() {
+                    continue;
+                }
+                if entry.file_type().is_dir() {
+                    tar.append_dir(relative, entry.path())?;
+                } else {
+                    tar.append_path_with_name(entry.path(), relative)?;
+                }
+            }
         } else {
             tar.append_path(input)?;
         }
@@ -130,20 +149,34 @@ pub fn pack_7z(inputs: &[PathBuf], out: &Path, cfg: &Config) -> Result<()> {
     let seven = crate::tools::seven_zip(cfg)?;
     // claim() already created an empty placeholder; 7-Zip will not reuse it.
     let _ = std::fs::remove_file(out);
+    let out = std::path::absolute(out)?;
     let mut command = std::process::Command::new(seven);
-    command.arg("a").arg("-y").arg(out);
-    for input in inputs {
-        command.arg(input);
+    command.arg("a").arg("-y").arg(&out);
+    if inputs.len() == 1 && inputs[0].is_dir() {
+        // Run inside the folder so the archive holds its contents, not the folder itself.
+        command.current_dir(&inputs[0]).arg(".");
+    } else {
+        for input in inputs {
+            command.arg(input);
+        }
     }
-    let output = crate::progress::run("Compactando em 7Z...", &mut command)?;
+    let output = crate::progress::run(
+        t("Compactando em 7Z...", "Compressing to 7Z..."),
+        &mut command,
+    )?;
     if !output.status.success() {
         bail!(
-            "7-Zip falhou: {}",
+            "{} {}",
+            t("7-Zip falhou:", "7-Zip failed:"),
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
     if !out.is_file() {
-        bail!("7-Zip não criou {}", out.display());
+        bail!(
+            "{} {}",
+            t("7-Zip não criou", "7-Zip did not create"),
+            out.display()
+        );
     }
     Ok(())
 }
@@ -215,6 +248,7 @@ fn single_stream<R: std::io::Read>(reader: R, base: &Path, name: &str) -> Result
     let out = crate::naming::claim(base, name, "")?;
     let mut file = File::create(&out)?;
     std::io::copy(&mut BufReader::new(reader), &mut file)?;
+    out.into_path();
     Ok(())
 }
 
@@ -227,7 +261,8 @@ fn seven_zip(input: &Path, cfg: &Config, folder: &Path) -> Result<()> {
         .arg(format!("-o{}", folder.display()))
         .arg(input);
     let label = format!(
-        "Extraindo {}...",
+        "{} {}...",
+        t("Extraindo", "Extracting"),
         input
             .file_name()
             .map(|name| name.to_string_lossy().to_string())
@@ -236,7 +271,8 @@ fn seven_zip(input: &Path, cfg: &Config, folder: &Path) -> Result<()> {
     let output = crate::progress::run(&label, &mut command)?;
     if !output.status.success() {
         bail!(
-            "7-Zip falhou: {}",
+            "{} {}",
+            t("7-Zip falhou:", "7-Zip failed:"),
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
@@ -281,7 +317,7 @@ mod tests {
         pack_zip(&[dir.join("src")], &archive).unwrap();
         let target = dir.join("out");
         extract_zip(&archive, &target).unwrap();
-        assert_eq!(std::fs::read(target.join("src/a.txt")).unwrap(), b"hello");
+        assert_eq!(std::fs::read(target.join("a.txt")).unwrap(), b"hello");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

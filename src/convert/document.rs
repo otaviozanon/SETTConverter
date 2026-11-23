@@ -8,17 +8,23 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
+use crate::lang::t;
+
 pub fn convert(input: &Path, to: &str, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
     let text = extract(input)?;
     if text.trim().is_empty() {
-        bail!("nenhum texto encontrado em {}", input.display());
+        bail!(
+            "{} {}",
+            t("nenhum texto encontrado em", "no text found in"),
+            input.display()
+        );
     }
     let dir = out_dir
         .map(Path::to_path_buf)
         .unwrap_or_else(|| crate::naming::parent_of(input));
     let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), to)?;
     std::fs::write(&out, text)?;
-    Ok(vec![out])
+    Ok(vec![out.into_path()])
 }
 
 fn extract(input: &Path) -> Result<String> {
@@ -26,7 +32,10 @@ fn extract(input: &Path) -> Result<String> {
         "docx" => xml_from_zip(input, &["word/document.xml"], &["p"]),
         "odt" => xml_from_zip(input, &["content.xml"], &["p", "h"]),
         "epub" => epub(input),
-        other => bail!("documento .{other} não suportado"),
+        other => bail!(
+            "{} .{other}",
+            t("documento não suportado:", "document not supported:")
+        ),
     }
 }
 
@@ -49,7 +58,10 @@ fn epub(input: &Path) -> Result<String> {
         seen += 1;
     }
     if seen == 0 {
-        bail!("EPUB sem páginas de texto");
+        bail!(
+            "{}",
+            t("EPUB sem páginas de texto", "EPUB without text pages")
+        );
     }
     Ok(text.trim().to_string())
 }
@@ -66,7 +78,11 @@ fn xml_from_zip(input: &Path, parts: &[&str], blocks: &[&str]) -> Result<String>
             return Ok(xml_text(&xml, blocks).trim().to_string());
         }
     }
-    bail!("pacote sem {}", parts.join(" ou "))
+    bail!(
+        "{} {}",
+        t("pacote sem", "package without"),
+        parts.join(t(" ou ", " or "))
+    )
 }
 
 fn xml_text(xml: &[u8], blocks: &[&str]) -> String {

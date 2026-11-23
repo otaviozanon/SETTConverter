@@ -5,8 +5,10 @@ use image::{DynamicImage, RgbaImage};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::convert::Options;
+use crate::lang::t;
 
 pub fn text(input: &Path, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
     let text = pdf_extract::extract_text(input)
@@ -16,7 +18,7 @@ pub fn text(input: &Path, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
         .unwrap_or_else(|| crate::naming::parent_of(input));
     let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), "txt")?;
     std::fs::write(&out, text)?;
-    Ok(vec![out])
+    Ok(vec![out.into_path()])
 }
 
 pub fn render_pages(
@@ -25,6 +27,40 @@ pub fn render_pages(
     out_dir: Option<&Path>,
     width: Option<u32>,
     dpi: Option<u32>,
+    quality: u8,
+) -> Result<Vec<PathBuf>> {
+    let input_owned = input.to_path_buf();
+    let out_owned = out_dir.map(Path::to_path_buf);
+    let to_owned = to.to_string();
+    let label = format!(
+        "{} {}...",
+        t("Renderizando", "Rendering"),
+        input
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default()
+    );
+    crate::progress::run_cancellable(&label, move |cancel| {
+        render_pages_inner(
+            &input_owned,
+            &to_owned,
+            out_owned.as_deref(),
+            width,
+            dpi,
+            quality,
+            cancel,
+        )
+    })
+}
+
+fn render_pages_inner(
+    input: &Path,
+    to: &str,
+    out_dir: Option<&Path>,
+    width: Option<u32>,
+    dpi: Option<u32>,
+    quality: u8,
+    cancel: &AtomicBool,
 ) -> Result<Vec<PathBuf>> {
     let pdfium = pdfium()?;
     let document = pdfium
@@ -40,6 +76,9 @@ pub fn render_pages(
 
     let mut written = Vec::new();
     for (index, page) in document.pages().iter().enumerate() {
+        if cancel.load(Ordering::Relaxed) {
+            bail!("{}", t("conversão cancelada", "conversion cancelled"));
+        }
         let bitmap = page
             .render_with_config(&render)
             .with_context(|| format!("renderizar página {}", index + 1))?;
@@ -54,27 +93,39 @@ pub fn render_pages(
         ));
         if to == "jpg" {
             let mut file = std::io::BufWriter::new(std::fs::File::create(&out)?);
-            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, 90)
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, quality)
                 .encode_image(&rgba)?;
         } else {
             rgba.save_with_format(&out, image::ImageFormat::Png)?;
         }
         written.push(out);
     }
+    let _ = folder.into_path();
     Ok(written)
 }
 
 pub fn merge(inputs: &[PathBuf], out: &Path) -> Result<()> {
     if inputs.is_empty() {
-        bail!("nenhum PDF para juntar");
+        bail!("{}", t("nenhum PDF para juntar", "no PDF to merge"));
     }
     let mut objects: BTreeMap<ObjectId, Object> = BTreeMap::new();
     let mut pages: Vec<Object> = Vec::new();
+    let mut info: Option<Dictionary> = None;
     let mut next_id = 1u32;
 
-    for path in inputs {
+    for (index, path) in inputs.iter().enumerate() {
         let mut doc =
             Document::load(path).with_context(|| format!("abrir PDF {}", path.display()))?;
+        if index == 0 {
+            info = doc
+                .trailer
+                .get(b"Info")
+                .ok()
+                .and_then(|object| object.as_reference().ok())
+                .and_then(|id| doc.get_object(id).ok())
+                .and_then(|object| object.as_dict().ok())
+                .cloned();
+        }
         doc.renumber_objects_with(next_id);
         next_id = doc.max_id + 1;
         for (_, page_id) in doc.get_pages() {
@@ -110,6 +161,10 @@ pub fn merge(inputs: &[PathBuf], out: &Path) -> Result<()> {
     doc.objects = objects;
     doc.max_id = catalog_id.0;
     doc.trailer.set("Root", catalog_id);
+    if let Some(info) = info {
+        let info_id = doc.add_object(info);
+        doc.trailer.set("Info", info_id);
+    }
     doc.compress();
     doc.save(out)?;
     Ok(())
@@ -122,7 +177,7 @@ pub fn split(input: &Path, every: usize, out_dir: Option<&Path>) -> Result<Vec<P
         .get_pages()
         .len() as u32;
     if total == 0 {
-        bail!("PDF sem páginas");
+        bail!("{}", t("PDF sem páginas", "PDF has no pages"));
     }
     let dir = out_dir
         .map(Path::to_path_buf)
@@ -145,7 +200,7 @@ pub fn split(input: &Path, every: usize, out_dir: Option<&Path>) -> Result<Vec<P
         doc.renumber_objects();
         let out = crate::naming::claim(&dir, &format!("{stem}_p{start}-{end}"), "pdf")?;
         doc.save(&out)?;
-        written.push(out);
+        written.push(out.into_path());
         start = end + 1;
     }
     Ok(written)
@@ -230,7 +285,7 @@ pub fn edit(input: &Path, out_dir: Option<&Path>, options: &Options) -> Result<V
         .unwrap_or_else(|| crate::naming::parent_of(input));
     let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), "pdf")?;
     doc.save(&out)?;
-    Ok(vec![out])
+    Ok(vec![out.into_path()])
 }
 
 fn watermark(doc: &mut Document, pages: &[ObjectId], text: &str) -> Result<()> {
@@ -339,6 +394,39 @@ pub fn render_long(
     dpi: Option<u32>,
     quality: u8,
 ) -> Result<Vec<PathBuf>> {
+    let input_owned = input.to_path_buf();
+    let out_owned = out_dir.map(Path::to_path_buf);
+    let to_owned = to.to_string();
+    let label = format!(
+        "{} {}...",
+        t("Renderizando", "Rendering"),
+        input
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default()
+    );
+    crate::progress::run_cancellable(&label, move |cancel| {
+        render_long_inner(
+            &input_owned,
+            &to_owned,
+            out_owned.as_deref(),
+            width,
+            dpi,
+            quality,
+            cancel,
+        )
+    })
+}
+
+fn render_long_inner(
+    input: &Path,
+    to: &str,
+    out_dir: Option<&Path>,
+    width: Option<u32>,
+    dpi: Option<u32>,
+    quality: u8,
+    cancel: &AtomicBool,
+) -> Result<Vec<PathBuf>> {
     let pdfium = pdfium()?;
     let document = pdfium
         .load_pdf_from_file(input, None)
@@ -348,6 +436,9 @@ pub fn render_long(
     // shortcut: all pages stay in memory; a huge PDF can use a lot of RAM.
     let mut pages = Vec::new();
     for (index, page) in document.pages().iter().enumerate() {
+        if cancel.load(Ordering::Relaxed) {
+            bail!("{}", t("conversão cancelada", "conversion cancelled"));
+        }
         let bitmap = page
             .render_with_config(&render)
             .with_context(|| format!("renderizar página {}", index + 1))?;
@@ -358,12 +449,18 @@ pub fn render_long(
         );
     }
     if pages.is_empty() {
-        bail!("PDF sem páginas");
+        bail!("{}", t("PDF sem páginas", "PDF has no pages"));
     }
     let width = pages.iter().map(|page| page.width()).max().unwrap_or(1);
     let height: u64 = pages.iter().map(|page| page.height() as u64).sum();
     if height > 30_000 {
-        bail!("imagem longa passaria de 30000 px de altura; use --width menor");
+        bail!(
+            "{}",
+            t(
+                "imagem longa passaria de 30000 px de altura; use --width menor",
+                "long image would exceed 30000 px; use a smaller --width"
+            )
+        );
     }
     let mut canvas = RgbaImage::new(width, height as u32);
     let mut y = 0i64;
@@ -381,13 +478,13 @@ pub fn render_long(
         to,
     )?;
     crate::convert::image::save_image(&DynamicImage::ImageRgba8(canvas), &out, to, quality)?;
-    Ok(vec![out])
+    Ok(vec![out.into_path()])
 }
 
 /// One image per page, in file name order (folder to PDF).
 pub fn from_images(paths: &[PathBuf], out: &Path) -> Result<()> {
     if paths.is_empty() {
-        bail!("nenhuma imagem encontrada");
+        bail!("{}", t("nenhuma imagem encontrada", "no image found"));
     }
     let temp = std::env::temp_dir().join(format!("settconv-pdf-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&temp);
@@ -464,11 +561,23 @@ fn ensure_pdfium() -> Result<PathBuf> {
         }
     }
     if !found {
-        bail!("pdfium.dll não encontrado no pacote embutido");
+        bail!(
+            "{}",
+            t(
+                "pdfium.dll não encontrado no pacote embutido",
+                "pdfium.dll missing from the embedded package"
+            )
+        );
     }
     if std::fs::metadata(&temp)?.len() < PDFIUM_MIN_BYTES {
         let _ = std::fs::remove_file(&temp);
-        bail!("pdfium.dll inválido no pacote embutido");
+        bail!(
+            "{}",
+            t(
+                "pdfium.dll inválido no pacote embutido",
+                "invalid pdfium.dll in the embedded package"
+            )
+        );
     }
     match std::fs::rename(&temp, &dll) {
         Ok(()) => {}

@@ -14,7 +14,9 @@ use walkdir::WalkDir;
 
 use crate::config::Config;
 use crate::formats::{self, Family};
+use crate::lang::t;
 
+#[derive(Default)]
 pub struct Options {
     pub to: String,
     pub out: Option<PathBuf>,
@@ -37,15 +39,23 @@ pub struct Options {
     pub sheet: bool,
     pub cover: bool,
     pub gpu: bool,
+    pub force: bool,
 }
 
 pub fn run(options: &Options, inputs: &[PathBuf], config: &Config) -> Result<Vec<PathBuf>> {
     if let Some(out) = &options.out {
-        std::fs::create_dir_all(out)?;
+        // CreateDirectoryW rejects a trailing separator.
+        std::fs::create_dir_all(trimmed(out))?;
     }
     if options.merge {
         if options.to != "pdf" {
-            bail!("--merge só vale com --to pdf");
+            bail!(
+                "{}",
+                t(
+                    "--merge só vale com --to pdf",
+                    "--merge only works with --to pdf"
+                )
+            );
         }
         return merge_pdfs(options, inputs);
     }
@@ -81,8 +91,12 @@ fn one(options: &Options, input: &Path, config: &Config) -> Result<Vec<PathBuf>>
     }
 
     let extension = formats::extension_of(input);
-    let family = formats::family(&extension)
-        .with_context(|| format!("formato não suportado: .{extension}"))?;
+    let family = formats::family(&extension).with_context(|| {
+        format!(
+            "{} .{extension}",
+            t("formato não suportado:", "unsupported format:")
+        )
+    })?;
     let quality = options.quality.unwrap_or_else(|| {
         if options.to == "webp" {
             config.webp_quality()
@@ -106,15 +120,23 @@ fn one(options: &Options, input: &Path, config: &Config) -> Result<Vec<PathBuf>>
                 options.dpi,
                 quality,
             ),
-            "png" | "jpg" => {
-                pdf::render_pages(input, &options.to, out_dir, options.width, options.dpi)
-            }
+            "png" | "jpg" => pdf::render_pages(
+                input,
+                &options.to,
+                out_dir,
+                options.width,
+                options.dpi,
+                quality,
+            ),
             "pdf" => match options.split_every {
                 Some(every) => pdf::split(input, every, out_dir),
                 // No flags: rotate/metadata/watermark or just recompress.
                 None => pdf::edit(input, out_dir, options),
             },
-            other => bail!("PDF para .{other} não suportado"),
+            other => bail!(
+                "{} .{other}",
+                t("PDF para não suportado:", "PDF to unsupported:")
+            ),
         },
         Family::Video | Family::Audio => {
             if options.cover {
@@ -139,9 +161,12 @@ fn one(options: &Options, input: &Path, config: &Config) -> Result<Vec<PathBuf>>
                         kind.extension(),
                     )?;
                     archive::repack(input, &out, kind)?;
-                    Ok(vec![out])
+                    Ok(vec![out.into_path()])
                 }
-                None => bail!("arquivo para .{other} não suportado"),
+                None => bail!(
+                    "{} .{other}",
+                    t("arquivo para não suportado:", "archive to unsupported:")
+                ),
             },
         },
     }
@@ -170,10 +195,13 @@ fn image_family(
                 "pdf",
             )?;
             image::to_pdf(&decoded, &out)?;
-            return Ok(vec![out]);
+            return Ok(vec![out.into_path()]);
         }
         if !formats::is_image_target(to) {
-            bail!("JXL para .{to} não suportado");
+            bail!(
+                "{} .{to}",
+                t("JXL para não suportado:", "JXL to unsupported:")
+            );
         }
         let out = crate::naming::claim(
             &out_dir
@@ -183,13 +211,19 @@ fn image_family(
             to,
         )?;
         image::save_image(&decoded, &out, to, quality)?;
-        return Ok(vec![out]);
+        return Ok(vec![out.into_path()]);
     }
 
     // AVIF goes through FFmpeg; converting it to PDF needs a PNG step first.
     if extension == "avif" || to == "avif" {
         if to == "pdf" {
-            bail!("AVIF para PDF não é suportado; converta para PNG ou JPG antes");
+            bail!(
+                "{}",
+                t(
+                    "AVIF para PDF não é suportado; converta para PNG ou JPG antes",
+                    "AVIF to PDF is not supported; convert to PNG or JPG first"
+                )
+            );
         }
         return media::still_image(input, to, config, out_dir, quality);
     }
@@ -205,13 +239,19 @@ fn image_family(
         if to == "pdf" || formats::is_image_target(to) {
             return image::convert_svg(input, to, quality, out_dir, options.size);
         }
-        bail!("vetor para .{to} não suportado");
+        bail!(
+            "{} .{to}",
+            t("vetor para não suportado:", "vector to unsupported:")
+        );
     }
 
     if to == "pdf" || to == "svg" || formats::is_image_target(to) {
         image::convert(input, to, quality, out_dir, options.size)
     } else {
-        bail!("imagem para .{to} não suportado")
+        bail!(
+            "{} .{to}",
+            t("imagem para não suportado:", "image to unsupported:")
+        )
     }
 }
 
@@ -221,36 +261,40 @@ fn folder(options: &Options, dir: &Path, config: &Config) -> Result<Vec<PathBuf>
         .out
         .clone()
         .unwrap_or_else(|| crate::naming::parent_of(dir));
-    std::fs::create_dir_all(&out_dir)?;
+    std::fs::create_dir_all(trimmed(&out_dir))?;
     let stem = crate::naming::stem_of(dir);
 
     match options.to.as_str() {
         "zip" => {
             let out = crate::naming::claim(&out_dir, &stem, "zip")?;
             archive::pack_zip(std::slice::from_ref(&dir.to_path_buf()), &out)?;
-            return Ok(vec![out]);
+            return Ok(vec![out.into_path()]);
         }
         "7z" => {
             let out = crate::naming::claim(&out_dir, &stem, "7z")?;
             archive::pack_7z(std::slice::from_ref(&dir.to_path_buf()), &out, config)?;
-            return Ok(vec![out]);
+            return Ok(vec![out.into_path()]);
         }
         "pdf" => {
             let images = files_in(dir, |family| {
                 matches!(family, Family::Image | Family::Vector)
             })?;
             if images.is_empty() {
-                bail!("nenhuma imagem em {}", dir.display());
+                bail!(
+                    "{} {}",
+                    t("nenhuma imagem em", "no images in"),
+                    dir.display()
+                );
             }
             let out = crate::naming::claim(&out_dir, &stem, "pdf")?;
             pdf::from_images(&images, &out)?;
-            return Ok(vec![out]);
+            return Ok(vec![out.into_path()]);
         }
         other => {
             if let Some(kind) = archive::TarKind::of(other) {
                 let out = crate::naming::claim(&out_dir, &stem, kind.extension())?;
                 archive::pack_tar(std::slice::from_ref(&dir.to_path_buf()), &out, kind)?;
-                return Ok(vec![out]);
+                return Ok(vec![out.into_path()]);
             }
         }
     }
@@ -258,8 +302,10 @@ fn folder(options: &Options, dir: &Path, config: &Config) -> Result<Vec<PathBuf>
     let files = files_in(dir, |family| accepts(&family, &options.to, options))?;
     if files.is_empty() {
         bail!(
-            "nenhum arquivo compatível com .{} em {}",
+            "{} .{} {} {}",
+            t("nenhum arquivo compatível com", "no files compatible with"),
             options.to,
+            t("em", "in"),
             dir.display()
         );
     }
@@ -302,6 +348,17 @@ fn accepts(family: &Family, to: &str, options: &Options) -> bool {
     }
 }
 
+/// `CreateDirectoryW` rejects a trailing separator.
+fn trimmed(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    let end = text.trim_end_matches(['\\', '/']);
+    if end.is_empty() {
+        path.to_path_buf()
+    } else {
+        PathBuf::from(end)
+    }
+}
+
 fn is_media_target(to: &str) -> bool {
     matches!(
         to,
@@ -340,14 +397,14 @@ fn merge_pdfs(options: &Options, inputs: &[PathBuf]) -> Result<Vec<PathBuf>> {
     }
     pdfs.sort();
     if pdfs.is_empty() {
-        bail!("nenhum PDF encontrado");
+        bail!("{}", t("nenhum PDF encontrado", "no PDF found"));
     }
     let first = &pdfs[0];
     let dir = options
         .out
         .clone()
         .unwrap_or_else(|| crate::naming::parent_of(first));
-    std::fs::create_dir_all(&dir)?;
+    std::fs::create_dir_all(trimmed(&dir))?;
     let stem = if inputs.len() == 1 && inputs[0].is_dir() {
         crate::naming::stem_of(&inputs[0])
     } else {
@@ -355,7 +412,7 @@ fn merge_pdfs(options: &Options, inputs: &[PathBuf]) -> Result<Vec<PathBuf>> {
     };
     let out = crate::naming::claim(&dir, &stem, "pdf")?;
     pdf::merge(&pdfs, &out)?;
-    Ok(vec![out])
+    Ok(vec![out.into_path()])
 }
 
 #[cfg(test)]
@@ -373,26 +430,7 @@ mod tests {
     fn options(to: &str) -> Options {
         Options {
             to: to.into(),
-            out: None,
-            quality: None,
-            split_every: None,
-            merge: false,
-            frames: false,
-            width: None,
-            dpi: None,
-            size: None,
-            strip: false,
-            at: None,
-            start: None,
-            end: None,
-            rotate: None,
-            title: None,
-            author: None,
-            watermark: None,
-            long: false,
-            sheet: false,
-            cover: false,
-            gpu: false,
+            ..Default::default()
         }
     }
 

@@ -6,6 +6,8 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
+use crate::lang::t;
+
 pub fn convert(
     input: &Path,
     to: &str,
@@ -21,16 +23,16 @@ pub fn convert(
 
     if to == "svg" {
         trace(input, &out)?;
-        return Ok(vec![out]);
+        return Ok(vec![out.into_path()]);
     }
     let mut img = decode(input)?;
     apply_size(&mut img, size);
     if to == "pdf" {
         to_pdf(&img, &out)?;
-        return Ok(vec![out]);
+        return Ok(vec![out.into_path()]);
     }
     save_image(&img, &out, to, quality)?;
-    Ok(vec![out])
+    Ok(vec![out.into_path()])
 }
 
 /// Scales to the requested box; a missing side keeps the aspect ratio.
@@ -60,17 +62,36 @@ pub fn apply_size(image: &mut DynamicImage, size: Option<(u32, u32)>) {
 
 /// Reads the pixels and applies the EXIF orientation, so phone photos are not stored sideways.
 pub fn decode(input: &Path) -> Result<DynamicImage> {
-    let file = File::open(input).with_context(|| format!("abrir {}", input.display()))?;
-    let mut decoder = image::ImageReader::new(BufReader::new(file))
+    let file =
+        File::open(input).with_context(|| format!("{} {}", t("abrir", "open"), input.display()))?;
+    let mut reader = image::ImageReader::new(BufReader::new(file))
         .with_guessed_format()
-        .with_context(|| format!("reconhecer {}", input.display()))?
-        .into_decoder()
-        .with_context(|| format!("decodificar {}", input.display()))?;
+        .with_context(|| format!("{} {}", t("reconhecer", "recognize"), input.display()))?;
+    // A clear limit beats a generic allocator failure on absurd images.
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(50_000);
+    limits.max_image_height = Some(50_000);
+    limits.max_alloc = Some(1_500_000_000);
+    reader.limits(limits);
+    let mut decoder = reader.into_decoder().with_context(|| {
+        format!(
+            "{} {} ({})",
+            t("decodificar", "decode"),
+            input.display(),
+            t("imagem grande ou inválida", "image too large or invalid")
+        )
+    })?;
     let orientation = decoder
         .orientation()
         .unwrap_or(image::metadata::Orientation::NoTransforms);
-    let mut image = DynamicImage::from_decoder(decoder)
-        .with_context(|| format!("decodificar {}", input.display()))?;
+    let mut image = DynamicImage::from_decoder(decoder).with_context(|| {
+        format!(
+            "{} {} ({})",
+            t("decodificar", "decode"),
+            input.display(),
+            t("imagem grande ou inválida", "image too large or invalid")
+        )
+    })?;
     image.apply_orientation(orientation);
     Ok(image)
 }
@@ -82,7 +103,8 @@ pub fn convert_svg(
     out_dir: Option<&Path>,
     size: Option<(u32, u32)>,
 ) -> Result<Vec<PathBuf>> {
-    let data = std::fs::read(input).with_context(|| format!("abrir {}", input.display()))?;
+    let data = std::fs::read(input)
+        .with_context(|| format!("{} {}", t("abrir", "open"), input.display()))?;
     let mut options = resvg::usvg::Options::default();
     options.fontdb_mut().load_system_fonts();
     let tree = resvg::usvg::Tree::from_data(&data, &options)
@@ -100,9 +122,14 @@ pub fn convert_svg(
             svg2pdf::ConversionOptions::default(),
             svg2pdf::PageOptions::default(),
         )
-        .map_err(|e| anyhow::anyhow!("converter SVG para PDF: {e:?}"))?;
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "{} {e:?}",
+                t("converter SVG para PDF:", "convert SVG to PDF:")
+            )
+        })?;
         std::fs::write(&out, pdf)?;
-        return Ok(vec![out]);
+        return Ok(vec![out.into_path()]);
     }
 
     let svg_size = tree.size().to_int_size();
@@ -117,7 +144,7 @@ pub fn convert_svg(
     let mut image = DynamicImage::ImageRgba8(rgba);
     apply_size(&mut image, size);
     save_image(&image, &out, to, quality)?;
-    Ok(vec![out])
+    Ok(vec![out.into_path()])
 }
 
 pub fn save_image(img: &DynamicImage, out: &Path, to: &str, quality: u8) -> Result<()> {
@@ -144,7 +171,10 @@ pub fn save_image(img: &DynamicImage, out: &Path, to: &str, quality: u8) -> Resu
         "hdr" => img.save_with_format(out, ImageFormat::Hdr)?,
         "exr" => img.save_with_format(out, ImageFormat::OpenExr)?,
         "qoi" => img.save_with_format(out, ImageFormat::Qoi)?,
-        other => bail!("destino de imagem desconhecido: {other}"),
+        other => bail!(
+            "{} {other}",
+            t("destino de imagem desconhecido:", "unknown image target:")
+        ),
     }
     Ok(())
 }
@@ -211,6 +241,6 @@ pub fn to_pdf(img: &DynamicImage, out: &Path) -> Result<()> {
 
 fn trace(input: &Path, out: &Path) -> Result<()> {
     vtracer::convert_image_to_svg(input, out, vtracer::Config::default())
-        .map_err(|e| anyhow::anyhow!("vetorizar: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("{} {e}", t("vetorizar:", "trace:")))?;
     Ok(())
 }

@@ -3,20 +3,40 @@
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 
+use crate::lang::t;
+
 pub fn convert(input: &Path, to: &str, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
     let ext = crate::formats::extension_of(input);
-    let data = std::fs::read(input).with_context(|| format!("abrir {}", input.display()))?;
+    let data = std::fs::read(input)
+        .with_context(|| format!("{} {}", t("abrir", "open"), input.display()))?;
     let output = match (ext.as_str(), to) {
-        ("woff2", "ttf") => woofwoof::decompress(&data)
-            .ok_or_else(|| anyhow::anyhow!("não foi possível decodificar este WOFF2"))?,
-        ("ttf" | "otf", "woff2") => woofwoof::compress(&data, "", 8, true)
-            .ok_or_else(|| anyhow::anyhow!("não foi possível codificar esta fonte para WOFF2"))?,
-        _ => bail!("fonte .{ext} para .{to} não suportado"),
+        ("woff2", "ttf") => woofwoof::decompress(&data).ok_or_else(|| {
+            anyhow::anyhow!(
+                "{}",
+                t(
+                    "não foi possível decodificar este WOFF2",
+                    "could not decode this WOFF2"
+                )
+            )
+        })?,
+        ("ttf" | "otf", "woff2") => woofwoof::compress(&data, "", 8, true).ok_or_else(|| {
+            anyhow::anyhow!(
+                "{}",
+                t(
+                    "não foi possível codificar esta fonte para WOFF2",
+                    "could not encode this font to WOFF2"
+                )
+            )
+        })?,
+        _ => bail!(
+            "{} .{ext} -> .{to}",
+            t("fonte não suportada:", "unsupported font conversion:")
+        ),
     };
     let dir = out_dir
         .map(Path::to_path_buf)
         .unwrap_or_else(|| crate::naming::parent_of(input));
     let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), to)?;
     std::fs::write(&out, output)?;
-    Ok(vec![out])
+    Ok(vec![out.into_path()])
 }
