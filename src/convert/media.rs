@@ -1,4 +1,4 @@
-// Audio and video through FFmpeg (from PATH, settconv.toml or the downloaded tools).
+// Audio and video through FFmpeg (from PATH, SETTConverter.toml or the downloaded tools).
 
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};

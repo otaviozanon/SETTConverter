@@ -30,7 +30,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist, tools | Out-Null
-          Copy-Item target/release/settconv.exe dist/
+          Copy-Item target/release/SETTConverter.exe dist/
 
           # FFmpeg and 7-Zip, pinned; the app downloads this bundle on first use.
           Invoke-WebRequest -UseBasicParsing `
@@ -65,6 +65,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/settconv.exe
+            dist/SETTConverter.exe
             dist/tools-win64.zip
           generate_release_notes: true

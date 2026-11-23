@@ -30,19 +30,21 @@ conversion.
 
 ## Downloads
 
-Grab `settconv.exe` from the [latest release](https://github.com/otaviozanon/SETTConverter/releases/latest).
+Grab `SETTConverter.exe` from the [latest release](https://github.com/otaviozanon/SETTConverter/releases/latest).
 The release also carries `tools-win64.zip` (FFmpeg and 7-Zip), which the exe fetches on demand.
 
 ## Install the Explorer menu
 
-Double-click `settconv.exe` and choose **Install menu** in the dialog. This writes only
+Double-click `SETTConverter.exe` and choose **Install menu** in the dialog. This writes only
 to `HKCU` (no administrator rights) and removes cleanly with **Remove menu**.
 
 On Windows 11 the entry lives under **Show more options**.
 
 ## Configuration
 
-Optional `settconv.toml` next to the executable:
+The first run creates `SETTConverter\Settings\SETTConverter.toml` next to the exe
+(`%LOCALAPPDATA%\SETTConverter\Settings` when the exe folder is read-only). Every key
+starts commented out; remove the `#` from what you want to change:
 
 ```toml
 jpg_quality = 90

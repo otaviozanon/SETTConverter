@@ -1,4 +1,4 @@
-// settconv.exe — tambem chamado como "SETTConverter" no menu do Explorer.
+// SETTConverter.exe — tambem o nome do menu do Explorer.
 // Sem janela propria: usa o console do pai quando existe, senao MessageBoxW.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -27,6 +27,7 @@ fn main() {
     // Explorador inicia o processo sem console. Se veio do terminal, herda o do pai.
     let attached = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } != 0;
     let has_console = attached || unsafe { !GetConsoleWindow().is_null() };
+    config::ensure();
     let args: Vec<String> = std::env::args().skip(1).collect();
     // Duplo clique sem argumentos: instala o menu em vez de nao fazer nada.
     let result = if args.is_empty() && !has_console {
@@ -187,7 +188,7 @@ fn run(args: &[String]) -> Result<String> {
                 menu::uninstall()?;
                 Ok("Menu SETTConverter removido.".into())
             }
-            _ => bail!("uso: settconv menu install|uninstall"),
+            _ => bail!("uso: SETTConverter menu install|uninstall"),
         },
         "extract" => {
             let cfg = config::load();
@@ -285,8 +286,9 @@ fn report(written: Vec<PathBuf>) -> Result<String> {
 
 fn help() -> Result<String> {
     Ok(format!(
-        "SETTConverter {}\n\n{}\n\nMenu do Explorer: settconv menu install | uninstall\n\
-         Config: settconv.toml ao lado do exe (jpg_quality, webp_quality, ffmpeg, seven_zip)\n\
+        "SETTConverter {}\n\n{}\n\nMenu do Explorer: SETTConverter menu install | uninstall\n\
+         Config: SETTConverter\\Settings\\SETTConverter.toml ao lado do exe \
+         (jpg_quality, webp_quality, ffmpeg, seven_zip)\n\
          FFmpeg e 7-Zip: baixados uma vez em %LOCALAPPDATA%\\SETTConverter\\tools",
         env!("CARGO_PKG_VERSION"),
         formats_help()
