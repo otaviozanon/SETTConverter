@@ -16,21 +16,14 @@ pub fn extract(input: &Path, cfg: &Config, out_dir: Option<&Path>) -> Result<Vec
     let base = out_dir
         .map(Path::to_path_buf)
         .unwrap_or_else(|| crate::naming::parent_of(input));
-    let folder = crate::naming::unique_dir(&base, &crate::naming::stem_of(input));
-    std::fs::create_dir_all(&folder)?;
+    let folder = crate::naming::claim_dir(&base, &crate::naming::stem_of(input))?;
 
     match ext.as_str() {
         "zip" => extract_zip(input, &folder)?,
         "tar" => tar_unpack(File::open(input)?, &folder)?,
-        "tar.gz" | "tgz" => {
-            tar_unpack(flate2::read::GzDecoder::new(File::open(input)?), &folder)?
-        }
-        "tar.bz2" | "tbz2" => {
-            tar_unpack(bzip2::read::BzDecoder::new(File::open(input)?), &folder)?
-        }
-        "tar.xz" | "txz" => {
-            tar_unpack(xz2::read::XzDecoder::new(File::open(input)?), &folder)?
-        }
+        "tar.gz" | "tgz" => tar_unpack(flate2::read::GzDecoder::new(File::open(input)?), &folder)?,
+        "tar.bz2" | "tbz2" => tar_unpack(bzip2::read::BzDecoder::new(File::open(input)?), &folder)?,
+        "tar.xz" | "txz" => tar_unpack(xz2::read::XzDecoder::new(File::open(input)?), &folder)?,
         "gz" => single_stream(
             flate2::read::GzDecoder::new(File::open(input)?),
             &base,
@@ -126,7 +119,7 @@ fn tar_unpack<R: std::io::Read>(reader: R, folder: &Path) -> Result<()> {
 }
 
 fn single_stream<R: std::io::Read>(reader: R, base: &Path, name: &str) -> Result<()> {
-    let out = crate::naming::unique(base, name, "");
+    let out = crate::naming::claim(base, name, "")?;
     let mut file = File::create(&out)?;
     std::io::copy(&mut BufReader::new(reader), &mut file)?;
     Ok(())
@@ -134,12 +127,20 @@ fn single_stream<R: std::io::Read>(reader: R, base: &Path, name: &str) -> Result
 
 fn seven_zip(input: &Path, cfg: &Config, folder: &Path) -> Result<()> {
     let seven = crate::tools::seven_zip(cfg)?;
-    let output = std::process::Command::new(seven)
+    let mut command = std::process::Command::new(seven);
+    command
         .arg("x")
         .arg("-y")
         .arg(format!("-o{}", folder.display()))
-        .arg(input)
-        .output()?;
+        .arg(input);
+    let label = format!(
+        "Extraindo {}...",
+        input
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default()
+    );
+    let output = crate::progress::run(&label, &mut command)?;
     if !output.status.success() {
         bail!(
             "7-Zip falhou: {}",

@@ -1,9 +1,10 @@
 [package]
 name = "settconverter"
-version = "1.0.2"
+version = "1.1.0"
 edition = "2024"
 description = "Conversor de arquivos portátil para Windows"
 repository = "https://github.com/otaviozanon/SETTConverter"
+license = "MIT"
 
 [package.metadata.winresource]
 FileDescription = "SETTConverter"
@@ -21,6 +22,7 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 lopdf = "0.47.0"
 pdf-extract = "0.12.1"
 pdfium-render = "0.9.6"
+rayon = "1.11.0"
 resvg = "0.45.1"
 serde = { version = "1.0.229", features = ["derive"] }
 svg2pdf = "0.13.0"

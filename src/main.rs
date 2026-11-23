@@ -8,6 +8,7 @@ mod convert;
 mod formats;
 mod menu;
 mod naming;
+mod progress;
 mod tools;
 
 use anyhow::{Result, bail};
@@ -24,6 +25,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 fn main() {
+    std::panic::set_hook(Box::new(crash));
     // Explorador inicia o processo sem console. Se veio do terminal, herda o do pai.
     let attached = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } != 0;
     let has_console = attached || unsafe { !GetConsoleWindow().is_null() };
@@ -53,9 +55,23 @@ fn main() {
     }
 }
 
+/// A panic used to exit silently under `windows_subsystem`; log it and tell the user.
+fn crash(info: &std::panic::PanicHookInfo<'_>) {
+    let text = format!("SETTConverter travou.\n\n{info}");
+    let log = std::env::temp_dir().join("SETTConverter-crash.log");
+    let _ = std::fs::write(&log, &text);
+    if unsafe { GetConsoleWindow().is_null() } {
+        message_box(
+            "SETTConverter",
+            &format!("{text}\n\nDetalhes: {}", log.display()),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+}
+
 fn install_by_double_click() -> Result<String> {
     use windows_sys::Win32::UI::Controls::{
-        TASKDIALOGCONFIG, TASKDIALOG_BUTTON, TD_INFORMATION_ICON, TDF_ALLOW_DIALOG_CANCELLATION,
+        TASKDIALOG_BUTTON, TASKDIALOGCONFIG, TD_INFORMATION_ICON, TDF_ALLOW_DIALOG_CANCELLATION,
         TaskDialogIndirect,
     };
 
@@ -83,16 +99,20 @@ fn install_by_double_click() -> Result<String> {
         },
     ];
 
-    let mut config = TASKDIALOGCONFIG::default();
-    config.cbSize = std::mem::size_of::<TASKDIALOGCONFIG>() as u32;
-    config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
-    config.pszWindowTitle = title.as_ptr();
-    config.pszMainInstruction = instruction.as_ptr();
-    config.pszContent = content.as_ptr();
-    config.cButtons = buttons.len() as u32;
-    config.pButtons = buttons.as_ptr();
-    config.nDefaultButton = if installed { 2 } else { 1 };
-    config.Anonymous1.pszMainIcon = TD_INFORMATION_ICON;
+    let config = TASKDIALOGCONFIG {
+        cbSize: std::mem::size_of::<TASKDIALOGCONFIG>() as u32,
+        dwFlags: TDF_ALLOW_DIALOG_CANCELLATION,
+        pszWindowTitle: title.as_ptr(),
+        pszMainInstruction: instruction.as_ptr(),
+        pszContent: content.as_ptr(),
+        cButtons: buttons.len() as u32,
+        pButtons: buttons.as_ptr(),
+        nDefaultButton: if installed { 2 } else { 1 },
+        Anonymous1: windows_sys::Win32::UI::Controls::TASKDIALOGCONFIG_0 {
+            pszMainIcon: TD_INFORMATION_ICON,
+        },
+        ..Default::default()
+    };
 
     let mut pressed = 0i32;
     let status = unsafe {
@@ -141,7 +161,10 @@ fn wide(text: &str) -> Vec<u16> {
 fn console_out(text: &str) {
     use std::io::Write;
     // stdout redirecionado (pipe, arquivo) funciona direto; console real pode precisar de CONOUT$.
-    if std::io::stdout().write_all(format!("{text}\n").as_bytes()).is_ok() {
+    if std::io::stdout()
+        .write_all(format!("{text}\n").as_bytes())
+        .is_ok()
+    {
         return;
     }
     unsafe {
@@ -191,29 +214,53 @@ fn run(args: &[String]) -> Result<String> {
             _ => bail!("uso: SETTConverter menu install|uninstall"),
         },
         "extract" => {
-            let cfg = config::load();
-            let inputs = paths(rest)?;
+            let cfg = config::load()?;
+            let mut out = None;
+            let mut inputs: Vec<PathBuf> = Vec::new();
+            let mut index = 0;
+            while index < rest.len() {
+                let arg = rest[index].clone();
+                match arg.as_str() {
+                    "--out" => {
+                        index += 1;
+                        let value = rest
+                            .get(index)
+                            .ok_or_else(|| anyhow::anyhow!("--out sem valor"))?;
+                        out = Some(PathBuf::from(value));
+                    }
+                    other if other.starts_with('-') => bail!("opcao desconhecida: {other}"),
+                    other => inputs.push(PathBuf::from(other)),
+                }
+                index += 1;
+            }
+            if inputs.is_empty() {
+                bail!("nenhum arquivo informado");
+            }
             report(convert::run(
                 &convert::Options {
                     to: "extract".into(),
-                    out: None,
+                    out,
                     quality: None,
                     split_every: None,
                     merge: false,
                     frames: false,
+                    width: None,
+                    dpi: None,
                 },
                 &inputs,
                 &cfg,
             )?)
         }
         "convert" => {
-            let cfg = config::load();
+            let cfg = config::load()?;
             let mut to = None;
             let mut out = None;
             let mut quality = None;
             let mut split_every = None;
             let mut merge = false;
             let mut frames = false;
+            let mut width = None;
+            let mut dpi = None;
             let mut inputs: Vec<PathBuf> = Vec::new();
             let mut index = 0;
 
@@ -230,6 +277,8 @@ fn run(args: &[String]) -> Result<String> {
                     "--out" => out = Some(PathBuf::from(value(&mut index)?)),
                     "--quality" => quality = Some(value(&mut index)?.parse()?),
                     "--split-every" => split_every = Some(value(&mut index)?.parse()?),
+                    "--width" => width = Some(value(&mut index)?.parse()?),
+                    "--dpi" => dpi = Some(value(&mut index)?.parse()?),
                     "--merge" => merge = true,
                     "--frames" => frames = true,
                     other if other.starts_with('-') => bail!("opcao desconhecida: {other}"),
@@ -252,24 +301,20 @@ fn run(args: &[String]) -> Result<String> {
                     split_every,
                     merge,
                     frames,
+                    width,
+                    dpi,
                 },
                 &inputs,
                 &cfg,
             )?)
         }
         "formats" => Ok(formats_help()),
-        "version" | "-V" | "--version" => Ok(format!("SETTConverter {}", env!("CARGO_PKG_VERSION"))),
+        "version" | "-V" | "--version" => {
+            Ok(format!("SETTConverter {}", env!("CARGO_PKG_VERSION")))
+        }
         "-h" | "--help" | "help" => help(),
         other => bail!("comando desconhecido: {other}"),
     }
-}
-
-fn paths(args: &[String]) -> Result<Vec<PathBuf>> {
-    let inputs: Vec<PathBuf> = args.iter().filter(|a| !a.starts_with('-')).map(PathBuf::from).collect();
-    if inputs.is_empty() {
-        bail!("nenhum arquivo informado");
-    }
-    Ok(inputs)
 }
 
 fn report(written: Vec<PathBuf>) -> Result<String> {

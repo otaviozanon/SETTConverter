@@ -58,14 +58,21 @@ fn locate(name: &str) -> Option<PathBuf> {
 fn installed(name: &str) -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if name == "7z.exe" {
-        for base in [user_env("ProgramFiles"), user_env("ProgramFiles(x86)")] {
-            if let Some(base) = base {
-                candidates.push(base.join("7-Zip").join("7z.exe"));
-            }
+        for base in [user_env("ProgramFiles"), user_env("ProgramFiles(x86)")]
+            .into_iter()
+            .flatten()
+        {
+            candidates.push(base.join("7-Zip").join("7z.exe"));
         }
     } else {
         if let Some(local) = user_env("LOCALAPPDATA") {
-            candidates.push(local.join("Microsoft").join("WinGet").join("Links").join("ffmpeg.exe"));
+            candidates.push(
+                local
+                    .join("Microsoft")
+                    .join("WinGet")
+                    .join("Links")
+                    .join("ffmpeg.exe"),
+            );
         }
         if let Some(home) = user_env("USERPROFILE") {
             candidates.push(home.join("scoop").join("shims").join("ffmpeg.exe"));
@@ -234,9 +241,7 @@ fn verify(dir: &Path) -> Result<()> {
 /// Explorer runs the exe without a console: warn before a silent 40 MB download.
 fn notice() {
     use windows_sys::Win32::System::Console::GetConsoleWindow;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        MB_ICONINFORMATION, MB_OK, MessageBoxW,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONINFORMATION, MB_OK, MessageBoxW};
     if unsafe { !GetConsoleWindow().is_null() } {
         return;
     }
@@ -271,7 +276,13 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let archive = root.join("tools.zip");
         let mut writer = zip::ZipWriter::new(File::create(&archive).unwrap());
-        for name in ["ffmpeg.exe", "7z.exe", "7z.dll", "../evil.txt", "sub/7z.exe"] {
+        for name in [
+            "ffmpeg.exe",
+            "7z.exe",
+            "7z.dll",
+            "../evil.txt",
+            "sub/7z.exe",
+        ] {
             writer
                 .start_file(name, zip::write::SimpleFileOptions::default())
                 .unwrap();

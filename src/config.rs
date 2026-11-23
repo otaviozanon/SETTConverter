@@ -1,5 +1,6 @@
 // Settings\SETTConverter.toml. Created on first run; every field is optional.
 
+use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -21,7 +22,7 @@ const TEMPLATE: &str = r##"# SETTConverter - configuracoes opcionais.
 # seven_zip = "C:\\Program Files\\7-Zip\\7z.exe"
 "##;
 
-#[derive(Deserialize, Default)]
+#[derive(Debug, Deserialize, Default)]
 pub struct Config {
     pub jpg_quality: Option<u8>,
     pub webp_quality: Option<u8>,
@@ -71,15 +72,43 @@ pub fn ensure() {
         return;
     }
     for dir in dirs() {
-        if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(dir.join(FILE), TEMPLATE).is_ok() {
+        if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(dir.join(FILE), TEMPLATE).is_ok()
+        {
             return;
         }
     }
 }
 
-pub fn load() -> Config {
-    std::fs::read_to_string(path())
-        .ok()
-        .and_then(|text| toml::from_str(&text).ok())
-        .unwrap_or_default()
+pub fn load() -> Result<Config> {
+    load_at(&path())
+}
+
+fn load_at(file: &Path) -> Result<Config> {
+    if !file.is_file() {
+        return Ok(Config::default());
+    }
+    let text = std::fs::read_to_string(file).with_context(|| format!("ler {}", file.display()))?;
+    toml::from_str(&text).with_context(|| format!("corrigir {}", file.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_file_means_defaults() {
+        let file = std::env::temp_dir().join("settconv-missing-config.toml");
+        let _ = std::fs::remove_file(&file);
+        assert_eq!(load_at(&file).unwrap().jpg_quality(), 90);
+    }
+
+    #[test]
+    fn broken_file_is_reported() {
+        let file =
+            std::env::temp_dir().join(format!("settconv-broken-{}.toml", std::process::id()));
+        std::fs::write(&file, "jpg_quality = ").unwrap();
+        let error = load_at(&file).unwrap_err().to_string();
+        assert!(error.contains("corrigir"), "{error}");
+        let _ = std::fs::remove_file(&file);
+    }
 }

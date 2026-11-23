@@ -11,22 +11,22 @@ pub enum Family {
 }
 
 pub const IMAGE_IN: &[&str] = &[
-    "jpg", "jpeg", "jpe", "jfif", "png", "webp", "gif", "bmp", "dib", "tiff", "tif", "ico",
-    "tga", "icb", "vda", "vst", "ppm", "pgm", "pbm", "pnm", "dds", "hdr", "exr", "qoi",
+    "jpg", "jpeg", "jpe", "jfif", "png", "webp", "gif", "bmp", "dib", "tiff", "tif", "ico", "tga",
+    "icb", "vda", "vst", "ppm", "pgm", "pbm", "pnm", "dds", "hdr", "exr", "qoi",
 ];
 pub const VECTOR_IN: &[&str] = &["svg", "svgz"];
 pub const PDF_IN: &[&str] = &["pdf"];
 pub const VIDEO_IN: &[&str] = &[
-    "mp4", "m4v", "mov", "qt", "mkv", "webm", "avi", "divx", "wmv", "asf", "flv", "mpg",
-    "mpeg", "mpe", "ts", "m2ts", "mts", "3gp", "3g2", "ogv", "vob", "mxf",
+    "mp4", "m4v", "mov", "qt", "mkv", "webm", "avi", "divx", "wmv", "asf", "flv", "mpg", "mpeg",
+    "mpe", "ts", "m2ts", "mts", "3gp", "3g2", "ogv", "vob", "mxf",
 ];
 pub const AUDIO_IN: &[&str] = &[
-    "mp3", "m4a", "m4b", "aac", "wav", "wave", "flac", "ogg", "oga", "opus", "wma", "aiff",
-    "aif", "ac3", "amr", "au", "mka", "wv", "tta", "mp2",
+    "mp3", "m4a", "m4b", "aac", "wav", "wave", "flac", "ogg", "oga", "opus", "wma", "aiff", "aif",
+    "ac3", "amr", "au", "mka", "wv", "tta", "mp2",
 ];
 pub const ARCHIVE_IN: &[&str] = &[
-    "zip", "7z", "rar", "tar", "gz", "tgz", "tar.gz", "bz2", "tar.bz2", "tbz2", "xz",
-    "tar.xz", "txz",
+    "zip", "7z", "rar", "tar", "gz", "tgz", "tar.gz", "bz2", "tar.bz2", "tbz2", "xz", "tar.xz",
+    "txz",
 ];
 
 const COMPOUND: &[&str] = &["tar.gz", "tar.bz2", "tar.xz"];
@@ -42,7 +42,10 @@ pub fn extension_of(path: &std::path::Path) -> String {
             return (*compound).to_string();
         }
     }
-    name.rsplit_once('.').map(|(_, ext)| ext).unwrap_or("").to_string()
+    name.rsplit_once('.')
+        .map(|(_, ext)| ext)
+        .unwrap_or("")
+        .to_string()
 }
 
 pub fn family(ext: &str) -> Option<Family> {
@@ -121,8 +124,21 @@ pub fn menu_targets(family: Family) -> &'static [(&'static str, &'static str)] {
 pub fn is_image_target(to: &str) -> bool {
     matches!(
         to,
-        "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp" | "tiff" | "tif" | "ico" | "tga"
-            | "pnm" | "dds" | "hdr" | "exr" | "qoi"
+        "jpg"
+            | "jpeg"
+            | "png"
+            | "webp"
+            | "gif"
+            | "bmp"
+            | "tiff"
+            | "tif"
+            | "ico"
+            | "tga"
+            | "pnm"
+            | "dds"
+            | "hdr"
+            | "exr"
+            | "qoi"
     )
 }
 

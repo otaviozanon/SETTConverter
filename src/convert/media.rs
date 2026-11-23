@@ -20,12 +20,11 @@ pub fn convert(
     let stem = crate::naming::stem_of(input);
 
     let (out, pattern) = if frames {
-        let folder = crate::naming::unique_dir(&dir, &format!("{stem}_frames"));
-        std::fs::create_dir_all(&folder)?;
+        let folder = crate::naming::claim_dir(&dir, &format!("{stem}_frames"))?;
         let pattern = folder.join(format!("frame_%06d.{to}"));
-        (folder.clone(), Some(pattern))
+        (folder, Some(pattern))
     } else {
-        (crate::naming::unique(&dir, &stem, to), None)
+        (crate::naming::claim(&dir, &stem, to)?, None)
     };
 
     let mut cmd = Command::new(&ffmpeg);
@@ -42,11 +41,28 @@ pub fn convert(
     } else {
         match to {
             "mp4" => cmd.args([
-                "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-c:a", "aac", "-b:a",
-                "192k", "-movflags", "+faststart",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "23",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-movflags",
+                "+faststart",
             ]),
             "webm" => cmd.args([
-                "-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-c:a", "libopus",
+                "-c:v",
+                "libvpx-vp9",
+                "-crf",
+                "32",
+                "-b:v",
+                "0",
+                "-c:a",
+                "libopus",
             ]),
             "mkv" | "mov" => cmd.args(["-c:v", "libx264", "-crf", "23", "-c:a", "aac"]),
             "avi" => cmd.args(["-c:v", "mpeg4", "-q:v", "5", "-c:a", "libmp3lame"]),
@@ -68,8 +84,14 @@ pub fn convert(
         cmd.arg(&out);
     }
 
-    let result = cmd
-        .output()
+    let label = format!(
+        "Convertendo {}...",
+        input
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default()
+    );
+    let result = crate::progress::run(&label, &mut cmd)
         .with_context(|| format!("executar {}", ffmpeg.display()))?;
     if !result.status.success() {
         let stderr = String::from_utf8_lossy(&result.stderr);
@@ -89,4 +111,3 @@ pub fn convert(
         Ok(vec![out])
     }
 }
-

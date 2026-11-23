@@ -1,9 +1,9 @@
 // Raster images, SVG and image to PDF.
 
 use anyhow::{Context, Result, bail};
-use image::{DynamicImage, ImageFormat, RgbaImage};
+use image::{DynamicImage, ImageDecoder, ImageFormat, RgbaImage};
 use std::fs::File;
-use std::io::BufWriter;
+use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
 pub fn convert(
@@ -16,19 +16,36 @@ pub fn convert(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| crate::naming::parent_of(input));
     let stem = crate::naming::stem_of(input);
-    let out = crate::naming::unique(&dir, &stem, to);
+    let out = crate::naming::claim(&dir, &stem, to)?;
 
     if to == "svg" {
         trace(input, &out)?;
         return Ok(vec![out]);
     }
-    let img = image::open(input).with_context(|| format!("abrir {}", input.display()))?;
+    let img = decode(input)?;
     if to == "pdf" {
         to_pdf(&img, &out)?;
         return Ok(vec![out]);
     }
     save(&img, &out, to, quality)?;
     Ok(vec![out])
+}
+
+/// Reads the pixels and applies the EXIF orientation, so phone photos are not stored sideways.
+fn decode(input: &Path) -> Result<DynamicImage> {
+    let file = File::open(input).with_context(|| format!("abrir {}", input.display()))?;
+    let mut decoder = image::ImageReader::new(BufReader::new(file))
+        .with_guessed_format()
+        .with_context(|| format!("reconhecer {}", input.display()))?
+        .into_decoder()
+        .with_context(|| format!("decodificar {}", input.display()))?;
+    let orientation = decoder
+        .orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut image = DynamicImage::from_decoder(decoder)
+        .with_context(|| format!("decodificar {}", input.display()))?;
+    image.apply_orientation(orientation);
+    Ok(image)
 }
 
 pub fn convert_svg(
@@ -47,7 +64,7 @@ pub fn convert_svg(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| crate::naming::parent_of(input));
     let stem = crate::naming::stem_of(input);
-    let out = crate::naming::unique(&dir, &stem, to);
+    let out = crate::naming::claim(&dir, &stem, to)?;
 
     if to == "pdf" {
         let pdf = svg2pdf::to_pdf(

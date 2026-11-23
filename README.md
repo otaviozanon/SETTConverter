@@ -15,7 +15,8 @@ process exits as soon as the file is written.
 | Audio   | `mp3` `m4a` `wav` `flac` `ogg` `opus`                                                                 |
 | Archive | extract `zip` `tar` `gz` `bz2` `xz` (`7z` `rar` via 7-Zip), repack to `tar.gz`, pack folders to `zip` |
 
-Output goes next to the source and never overwrites: `photo (2).png`.
+Output goes next to the source and never overwrites: `photo (2).png`. Parallel
+conversions never pick the same name, and phone photos are rotated by their EXIF tag.
 
 Images, vectors, PDF and archives are handled in-process (`image`, `resvg`, `svg2pdf`,
 PDFium, `lopdf`, `zip`). Video and audio need FFmpeg; `7z`/`rar` need 7-Zip. If the tool
@@ -28,6 +29,11 @@ copy is used and nothing is downloaded. Otherwise it is fetched once (about 40 M
 To run: Windows 10 or later, x64, and internet only for the first media or `7z`/`rar`
 conversion.
 
+To build:
+
+- Rust with the `x86_64-pc-windows-msvc` target.
+- Windows SDK (`rc.exe`) for the embedded manifest and icon.
+
 ## Downloads
 
 Grab `SETTConverter.exe` from the [latest release](https://github.com/otaviozanon/SETTConverter/releases/latest).
@@ -36,9 +42,28 @@ The release also carries `tools-win64.zip` (FFmpeg and 7-Zip), which the exe fet
 ## Install the Explorer menu
 
 Double-click `SETTConverter.exe` and choose **Install menu** in the dialog. This writes only
-to `HKCU` (no administrator rights) and removes cleanly with **Remove menu**.
+to `HKCU` (no administrator rights) and removes cleanly with **Remove menu**. If the exe is
+moved, double-click it again to update the registered path.
 
 On Windows 11 the entry lives under **Show more options**.
+
+## Command line
+
+```
+SETTConverter convert --to <target> [--out DIR] [--quality 1-100] [--frames] FILE...
+SETTConverter convert --to png|jpg --dpi 300 FILE.pdf
+SETTConverter convert --to png|jpg --width 1600 FILE.pdf
+SETTConverter convert --to pdf --merge DIR
+SETTConverter convert --to pdf --split-every 10 FILE.pdf
+SETTConverter convert --to zip DIR
+SETTConverter convert --to tar.gz FILE.zip
+SETTConverter extract [--out DIR] FILE.zip
+SETTConverter formats
+SETTConverter version
+```
+
+Long video/archive conversions show a progress dialog with **Cancel** when started from
+Explorer; from a terminal they stay quiet.
 
 ## Configuration
 
@@ -53,9 +78,54 @@ ffmpeg = "C:\\tools\\ffmpeg.exe"
 seven_zip = "C:\\Program Files\\7-Zip\\7z.exe"
 ```
 
+A malformed file is reported with its path instead of being silently ignored.
+
+## Build
+
+```powershell
+cargo build --release
+```
+
+Result: `target\release\SETTConverter.exe`, about 13 MB, static CRT, no side-by-side DLLs.
+PDFium ships inside the exe and is extracted to `%TEMP%\settconv\pdfium` on first use.
+
+## Releases
+
+Pushing a `v*` tag (or running the workflow manually) runs `cargo fmt --check`,
+`cargo clippy -D warnings` and the tests on `windows-latest`, then publishes
+`SETTConverter.exe`, `tools-win64.zip` and `SHA256SUMS`.
+See `.github/workflows/release.yml`.
+
+## Layout
+
+```
+src/main.rs        entry point, argument parsing, dialogs
+src/formats.rs     extension to family, menu targets
+src/convert/       image, pdf, media, archive converters
+src/menu.rs        HKCU context-menu registration
+src/naming.rs      output naming and collision handling
+src/progress.rs    marquee progress dialog for external tools
+src/config.rs      SETTConverter.toml
+src/tools.rs       one-time download of FFmpeg and 7-Zip
+assets/            icon sources and the embedded PDFium archive
+```
+
+## Icon
+
+Drawn in `assets/icon.svg`: two opposing orange arrows on a transparent background.
+Rasterized to `assets/icon.png`, packed into `assets/icon.ico` with seven sizes
+(16 to 256), embedded by `build.rs` together with the manifest.
+To change it: edit the SVG, run `SETTConverter convert --to png assets/icon.svg --out assets`,
+rebuild the ICO and compile again.
+
+## License
+
+MIT. The downloaded FFmpeg (GPLv3) and 7-Zip (LGPL) keep their own licenses.
+
 ## Limitations
 
 - Image to GIF writes the first frame only; video to GIF is animated.
-- PDF to image renders each page at 1600 px width.
+- PDF to image renders each page at 1600 px width unless `--width`/`--dpi` is given.
+- A failed conversion can leave the reserved output name as an empty file.
 - No OCR, Office, e-book, 3D, CAD, font, subtitle, metadata, translation or upscale support.
 - FFmpeg (GPLv3) and 7-Zip (LGPL) are downloaded on demand, not embedded in the exe.
