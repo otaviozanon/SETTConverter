@@ -51,15 +51,22 @@ pub(super) fn convert(
         return Ok(vec![out.into_path()]);
     }
 
-    // AVIF goes through FFmpeg; converting it to PDF needs a PNG step first.
-    if extension == "avif" || to == "avif" {
+    // AVIF/HEIC/HEIF are decoded by FFmpeg; PDF would need a PNG step first.
+    let ffmpeg_only = matches!(extension, "avif" | "heic" | "heif");
+    if ffmpeg_only || to == "avif" {
         if to == "pdf" {
             bail!(
                 "{}",
                 t(
-                    "AVIF para PDF não é suportado; converta para PNG ou JPG antes",
-                    "AVIF to PDF is not supported; convert to PNG or JPG first"
+                    "HEIC/AVIF para PDF não é suportado; converta para PNG ou JPG antes",
+                    "HEIC/AVIF to PDF is not supported; convert to PNG or JPG first"
                 )
+            );
+        }
+        if !(formats::is_image_target(to) || matches!(to, "apng" | "mp4" | "webm")) {
+            bail!(
+                "{} .{extension} -> .{to}",
+                t("imagem não suportada:", "unsupported image conversion:")
             );
         }
         return media::still_image(input, to, config, out_dir, quality);

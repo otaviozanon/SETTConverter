@@ -210,19 +210,29 @@ pub fn still_image(
     let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), to)?;
     let mut command = base_command(&ffmpeg);
     command.args(["-i"]).arg(input);
-    if to == "avif" {
-        command.args([
-            "-frames:v",
-            "1",
-            "-c:v",
-            "libaom-av1",
-            "-still-picture",
-            "1",
-            "-crf",
-            &avif_crf(quality).to_string(),
-        ]);
-    } else {
-        command.args(["-frames:v", "1"]);
+    match to {
+        "avif" => {
+            command.args([
+                "-frames:v",
+                "1",
+                "-c:v",
+                "libaom-av1",
+                "-still-picture",
+                "1",
+                "-crf",
+                &avif_crf(quality).to_string(),
+            ]);
+        }
+        "jpg" | "jpeg" => {
+            let jpeg_quality = (31 - (quality.min(100) as u16 * 29 / 100)).clamp(2, 31);
+            command.args(["-frames:v", "1", "-q:v", &jpeg_quality.to_string()]);
+        }
+        "webp" => {
+            command.args(["-frames:v", "1", "-quality", &quality.to_string()]);
+        }
+        _ => {
+            command.args(["-frames:v", "1"]);
+        }
     }
     command.arg(&out);
     let output = crate::progress::run(

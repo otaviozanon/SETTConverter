@@ -8,7 +8,7 @@ process exits as soon as the file is written.
 
 | Family   | Conversions                                                                                       |
 | -------- | ------------------------------------------------------------------------------------------------- |
-| Image    | `jpg` `png` `webp` `bmp` `tiff` `gif` `ico` `avif` `pdf` `svg` (trace), `jxl` (read), resize      |
+| Image    | `jpg` `png` `webp` `bmp` `tiff` `gif` `ico` `avif` `pdf` `svg` (trace), `jxl`/`heic`/`heif` (read), resize |
 | Animated | `gif` `webp` `apng` keep every frame; also to `mp4`/`webm`                                        |
 | Vector   | `svg`/`svgz` to `png` `jpg` `webp` `pdf`                                                          |
 | PDF      | pages to `png`/`jpg`, one long image, text to `txt`, merge, split, rotate, watermark, metadata, compress |
@@ -25,8 +25,8 @@ failed conversion removes the reserved output instead of leaving an empty file.
 A folder can be converted as a batch, packed into an archive, or turned into one PDF.
 
 Images, vectors, PDF and archives are handled in-process (`image`, `resvg`, `svg2pdf`,
-PDFium, `lopdf`, `zip`, `jxl-oxide`). Video, audio, subtitles, animated images, AVIF and
-`7z`/`rar` use FFmpeg and 7-Zip. If the tool is already on this PC (PATH,
+PDFium, `lopdf`, `zip`, `jxl-oxide`). Video, audio, subtitles, animated images, AVIF,
+HEIC/HEIF and `7z`/`rar` use FFmpeg and 7-Zip. If the tool is already on this PC (PATH,
 `Program Files\7-Zip`, WinGet/Scoop/Chocolatey), the existing copy is used and nothing is
 downloaded. Otherwise it is fetched once (about 40 MB) into
 `%LOCALAPPDATA%\SETTConverter\tools`, so nothing has to be installed by hand. The
@@ -161,8 +161,8 @@ The WOFF2 encoder inside `woofwoof` is Apache-2.0.
 ## Limitations
 
 - Static images to GIF/APNG produce a single frame; animated sources keep every frame.
-- AVIF to PDF is not supported; convert to PNG/JPG first.
-- JXL is read-only; no JXL encoder.
+- AVIF/HEIC to PDF is not supported; convert to PNG/JPG first.
+- JXL and HEIC/HEIF are read-only; no JXL or HEIC encoder.
 - DOCX/ODT/EPUB extraction loses layout, tables and images.
 - PDF to image renders each page at 1600 px width unless `--width`/`--dpi` is given.
 - Paths longer than 260 characters need `LongPathsEnabled` in Windows; the manifest is

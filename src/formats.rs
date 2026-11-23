@@ -16,6 +16,7 @@ pub enum Family {
 pub const IMAGE_IN: &[&str] = &[
     "jpg", "jpeg", "jpe", "jfif", "png", "webp", "gif", "bmp", "dib", "tiff", "tif", "ico", "tga",
     "icb", "vda", "vst", "ppm", "pgm", "pbm", "pnm", "dds", "hdr", "exr", "qoi", "avif", "jxl",
+    "heic", "heif",
 ];
 pub const VECTOR_IN: &[&str] = &["svg", "svgz"];
 pub const PDF_IN: &[&str] = &["pdf"];
@@ -229,6 +230,8 @@ mod tests {
     #[test]
     fn families() {
         assert_eq!(family("png"), Some(Family::Image));
+        assert_eq!(family("heic"), Some(Family::Image));
+        assert_eq!(family("heif"), Some(Family::Image));
         assert_eq!(family("svg"), Some(Family::Vector));
         assert_eq!(family("mp4"), Some(Family::Video));
         assert_eq!(family("zip"), Some(Family::Archive));

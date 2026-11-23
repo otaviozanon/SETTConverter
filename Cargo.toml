@@ -1,6 +1,6 @@
 [package]
 name = "settconverter"
-version = "1.2.3"
+version = "1.2.4"
 edition = "2024"
 description = "Conversor de arquivos portátil para Windows"
 repository = "https://github.com/otaviozanon/SETTConverter"

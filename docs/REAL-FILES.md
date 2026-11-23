@@ -5,7 +5,7 @@ before calling a release done.
 
 | Check | How | Status |
 | --- | --- | --- |
-| HEIC input fails with a clear message | `convert --to png photo.heic` | passed (unsupported format message) |
+| HEIC input fails with a clear message | `convert --to png photo.heic` | passed: decodes to JPG/PNG/WEBP |
 | 30 s 720p video to WEBM | `convert --to webm clip.mp4` | passed |
 | Image folder to one PDF | `convert --to pdf folder` | passed |
 | Scanned-style PDF (image pages) to PNG/JPG | `convert --to jpg --dpi 40 file.pdf` | passed |

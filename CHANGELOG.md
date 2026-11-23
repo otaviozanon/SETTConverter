@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.4
+
+- HEIC/HEIF input: decodes to JPG, PNG, WEBP, AVIF, BMP, TIFF and the other image
+  targets through FFmpeg (already used by AVIF). The Explorer menu appears for
+  `.heic`/`.heif` files.
+- `--quality` is honored for JPG/WEBP output of FFmpeg-decoded images.
+- HEIC/AVIF to PDF still needs a PNG/JPG step and says so.
+
 ## 1.2.3
 
 Internal organization, no behavior change:
