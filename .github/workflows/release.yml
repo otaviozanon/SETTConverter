@@ -51,7 +51,6 @@ jobs:
           Copy-Item $ffmpeg.FullName tools/ffmpeg.exe
           Copy-Item $license.FullName tools/ffmpeg-LICENSE.txt
           Copy-Item 7zip/7z.exe, 7zip/7z.dll, 7zip/License.txt tools/
-          Copy-Item (Join-Path $ffmpeg.Directory.FullName 'LICENSE') tools/ffmpeg-LICENSE.txt
 
           Compress-Archive -Path tools/* -DestinationPath dist/tools-win64.zip
           Get-ChildItem dist | Select-Object Name, Length
