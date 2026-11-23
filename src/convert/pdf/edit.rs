@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::path::{Path, PathBuf};
 
+use super::inherit::inherited_value;
 use crate::convert::Options;
 
 pub fn edit(input: &Path, out_dir: Option<&Path>, options: &Options) -> Result<Vec<PathBuf>> {
@@ -113,22 +114,6 @@ fn add_font_resource(doc: &mut Document, page_id: ObjectId, font_id: ObjectId) -
         .as_dict_mut()?
         .set("Resources", resources);
     Ok(())
-}
-
-fn inherited_value(doc: &Document, start: ObjectId, key: &[u8]) -> Option<Object> {
-    let mut current = Some(start);
-    while let Some(id) = current {
-        let object = doc.get_object(id).ok()?;
-        let dict = object.as_dict().ok()?;
-        if let Ok(value) = dict.get(key) {
-            return Some(value.clone());
-        }
-        current = dict
-            .get(b"Parent")
-            .ok()
-            .and_then(|object| object.as_reference().ok());
-    }
-    None
 }
 
 fn page_size(doc: &Document, page_id: ObjectId) -> (f32, f32) {

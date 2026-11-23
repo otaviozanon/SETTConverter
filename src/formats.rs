@@ -193,6 +193,27 @@ pub fn is_image_target(to: &str) -> bool {
     )
 }
 
+pub fn is_media_target(to: &str) -> bool {
+    matches!(
+        to,
+        "mp4"
+            | "webm"
+            | "mkv"
+            | "mov"
+            | "avi"
+            | "gif"
+            | "apng"
+            | "mp3"
+            | "m4a"
+            | "wav"
+            | "flac"
+            | "ogg"
+            | "opus"
+            | "png"
+            | "jpg"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

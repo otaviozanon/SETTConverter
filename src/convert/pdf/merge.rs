@@ -73,32 +73,17 @@ pub fn merge(inputs: &[PathBuf], out: &Path) -> Result<()> {
     Ok(())
 }
 
-const INHERITED: &[&[u8]] = &[b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
-
 /// Clone of a page with inherited attributes copied down; merging without this
 /// loses the page size/resources of PDFs that rely on the page tree.
 fn page_with_inherited(doc: &Document, page_id: ObjectId) -> Result<Object> {
     let mut page = doc.get_object(page_id)?.clone();
     if let Object::Dictionary(dict) = &mut page {
-        let mut parent = dict
-            .get(b"Parent")
-            .ok()
-            .and_then(|object| object.as_reference().ok());
-        while let Some(id) = parent {
-            let Ok(Object::Dictionary(parent_dict)) = doc.get_object(id) else {
-                break;
-            };
-            for key in INHERITED {
-                if !dict.has(key)
-                    && let Ok(value) = parent_dict.get(key)
-                {
-                    dict.set(*key, value.clone());
-                }
+        for key in super::inherit::INHERITED {
+            if !dict.has(key)
+                && let Some(value) = super::inherit::inherited_value(doc, page_id, key)
+            {
+                dict.set(*key, value);
             }
-            parent = parent_dict
-                .get(b"Parent")
-                .ok()
-                .and_then(|object| object.as_reference().ok());
         }
     }
     Ok(page)

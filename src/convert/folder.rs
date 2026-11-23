@@ -94,7 +94,9 @@ fn accepts(family: &Family, to: &str, options: &Options) -> bool {
         Family::Image | Family::Vector => {
             to == "pdf" || to == "svg" || formats::is_image_target(to)
         }
-        Family::Video | Family::Audio => is_media_target(to) || (options.cover && to == "jpg"),
+        Family::Video | Family::Audio => {
+            formats::is_media_target(to) || (options.cover && to == "jpg")
+        }
         Family::Subtitle => matches!(to, "srt" | "vtt" | "ass" | "ssa"),
         Family::Document => matches!(to, "txt" | "md"),
         Family::Font => matches!(to, "ttf" | "woff2"),
@@ -112,25 +114,4 @@ pub(super) fn trimmed(path: &Path) -> PathBuf {
     } else {
         PathBuf::from(end)
     }
-}
-
-fn is_media_target(to: &str) -> bool {
-    matches!(
-        to,
-        "mp4"
-            | "webm"
-            | "mkv"
-            | "mov"
-            | "avi"
-            | "gif"
-            | "apng"
-            | "mp3"
-            | "m4a"
-            | "wav"
-            | "flac"
-            | "ogg"
-            | "opus"
-            | "png"
-            | "jpg"
-    )
 }

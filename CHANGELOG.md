@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.3
+
+Internal organization, no behavior change:
+
+- Target predicates (`is_media_target`) live in `formats.rs`.
+- PDF page-tree inheritance shared by merge and edit (`pdf/inherit.rs`).
+- Settings templates moved to `config/template.rs`.
+- Conversion tests moved to `convert/tests.rs`; image dispatch to `convert/image_family.rs`.
+- Explorer menu split into `menu/{mod,commands,registry,dialog}.rs`.
+- Archives split into `archive/{mod,pack}.rs`.
+- Tools split into `tools/{mod,locate}.rs`.
+- `main.rs` is now the entry point only (121 lines); dialogs live in `menu/dialog.rs`
+  and console output in `win.rs`.
+
 ## 1.2.2
 
 Internal cleanup, no behavior change:

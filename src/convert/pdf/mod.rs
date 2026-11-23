@@ -1,5 +1,6 @@
 // PDF: text, split and folder to PDF. Render/merge/edit live in submodules.
 pub mod edit;
+mod inherit;
 pub mod merge;
 pub mod render;
 

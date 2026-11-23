@@ -16,6 +16,8 @@ use walkdir::WalkDir;
 use crate::config::Config;
 use crate::formats::{self, Family};
 use crate::lang::t;
+
+mod image_family;
 use folder::trimmed;
 
 #[derive(Default)]
@@ -110,7 +112,7 @@ fn one(options: &Options, input: &Path, config: &Config) -> Result<Vec<PathBuf>>
 
     match family {
         Family::Image | Family::Vector => {
-            image_family(options, input, &extension, quality, out_dir, config)
+            image_family::convert(options, input, &extension, quality, out_dir, config)
         }
         Family::Pdf => match options.to.as_str() {
             "txt" => pdf::text(input, out_dir),
@@ -174,88 +176,8 @@ fn one(options: &Options, input: &Path, config: &Config) -> Result<Vec<PathBuf>>
     }
 }
 
-fn image_family(
-    options: &Options,
-    input: &Path,
-    extension: &str,
-    quality: u8,
-    out_dir: Option<&Path>,
-    config: &Config,
-) -> Result<Vec<PathBuf>> {
-    let to = options.to.as_str();
-
-    // JPEG XL has no FFmpeg decoder in the essentials build.
-    if extension == "jxl" {
-        let mut decoded = jxl::decode(input)?;
-        image::apply_size(&mut decoded, options.size);
-        if to == "pdf" {
-            let out = crate::naming::claim(
-                &out_dir
-                    .map(Path::to_path_buf)
-                    .unwrap_or_else(|| crate::naming::parent_of(input)),
-                &crate::naming::stem_of(input),
-                "pdf",
-            )?;
-            image::to_pdf(&decoded, &out)?;
-            return Ok(vec![out.into_path()]);
-        }
-        if !formats::is_image_target(to) {
-            bail!(
-                "{} .{to}",
-                t("JXL para não suportado:", "JXL to unsupported:")
-            );
-        }
-        let out = crate::naming::claim(
-            &out_dir
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| crate::naming::parent_of(input)),
-            &crate::naming::stem_of(input),
-            to,
-        )?;
-        image::save_image(&decoded, &out, to, quality)?;
-        return Ok(vec![out.into_path()]);
-    }
-
-    // AVIF goes through FFmpeg; converting it to PDF needs a PNG step first.
-    if extension == "avif" || to == "avif" {
-        if to == "pdf" {
-            bail!(
-                "{}",
-                t(
-                    "AVIF para PDF não é suportado; converta para PNG ou JPG antes",
-                    "AVIF to PDF is not supported; convert to PNG or JPG first"
-                )
-            );
-        }
-        return media::still_image(input, to, config, out_dir, quality);
-    }
-
-    // Animated sources keep every frame only through FFmpeg; APNG/MP4 need it too.
-    let animated = matches!(extension, "gif" | "webp");
-    let animated_target = matches!(to, "gif" | "webp" | "apng" | "mp4" | "webm");
-    if animated_target && (animated || matches!(to, "apng" | "mp4" | "webm")) {
-        return media::animated_image(input, to, config, out_dir, options);
-    }
-
-    if formats::family(extension) == Some(Family::Vector) {
-        if to == "pdf" || formats::is_image_target(to) {
-            return image::convert_svg(input, to, quality, out_dir, options.size);
-        }
-        bail!(
-            "{} .{to}",
-            t("vetor para não suportado:", "vector to unsupported:")
-        );
-    }
-
-    if to == "pdf" || to == "svg" || formats::is_image_target(to) {
-        image::convert(input, to, quality, out_dir, options.size)
-    } else {
-        bail!(
-            "{} .{to}",
-            t("imagem para não suportado:", "image to unsupported:")
-        )
-    }
-}
+#[cfg(test)]
+mod tests;
 
 fn merge_pdfs(options: &Options, inputs: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut pdfs = Vec::new();
@@ -290,153 +212,4 @@ fn merge_pdfs(options: &Options, inputs: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let out = crate::naming::claim(&dir, &stem, "pdf")?;
     pdf::merge(&pdfs, &out)?;
     Ok(vec![out.into_path()])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ::image::RgbaImage;
-
-    fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("settconv-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn options(to: &str) -> Options {
-        Options {
-            to: to.into(),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn image_pdf_merge_split_and_render() {
-        let dir = temp("pipeline");
-        let cfg = Config::default();
-        let mut pdfs = Vec::new();
-        for name in ["a.png", "b.png"] {
-            let png = dir.join(name);
-            RgbaImage::from_pixel(8, 8, ::image::Rgba([200, 30, 30, 255]))
-                .save(&png)
-                .unwrap();
-            let pdf = run(&options("pdf"), std::slice::from_ref(&png), &cfg).unwrap();
-            assert!(pdf[0].metadata().unwrap().len() > 0);
-            pdfs.push(pdf[0].clone());
-        }
-
-        let merged = run(
-            &Options {
-                merge: true,
-                ..options("pdf")
-            },
-            &pdfs,
-            &cfg,
-        )
-        .unwrap();
-        let parts = run(
-            &Options {
-                split_every: Some(1),
-                ..options("pdf")
-            },
-            &merged,
-            &cfg,
-        )
-        .unwrap();
-        assert_eq!(parts.len(), 2);
-
-        let pages = run(
-            &Options {
-                dpi: Some(72),
-                ..options("png")
-            },
-            &parts[0..1],
-            &cfg,
-        )
-        .unwrap();
-        assert_eq!(pages.len(), 1);
-        assert!(pages[0].metadata().unwrap().len() > 0);
-    }
-
-    #[test]
-    fn svg_to_png() {
-        let dir = temp("svg");
-        let svg = dir.join("logo.svg");
-        std::fs::write(
-            &svg,
-            r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#ff6600"/></svg>"##,
-        )
-        .unwrap();
-        let png = run(
-            &options("png"),
-            std::slice::from_ref(&svg),
-            &Config::default(),
-        )
-        .unwrap();
-        assert_eq!(png.len(), 1);
-        assert!(png[0].metadata().unwrap().len() > 0);
-    }
-
-    #[test]
-    fn batch_keeps_every_output() {
-        let dir = temp("batch");
-        let cfg = Config::default();
-        let mut inputs = Vec::new();
-        for index in 0..4 {
-            let png = dir.join(format!("p{index}.png"));
-            RgbaImage::from_pixel(4, 4, ::image::Rgba([index, 0, 0, 255]))
-                .save(&png)
-                .unwrap();
-            inputs.push(png);
-        }
-        let out = run(&options("jpg"), &inputs, &cfg).unwrap();
-        assert_eq!(out.len(), 4);
-        assert!(out.iter().all(|path| path.metadata().unwrap().len() > 0));
-    }
-
-    #[test]
-    fn folder_to_pdf_and_long_image() {
-        let dir = temp("folder");
-        for name in ["a.png", "b.png"] {
-            RgbaImage::from_pixel(16, 8, ::image::Rgba([0, 100, 200, 255]))
-                .save(dir.join(name))
-                .unwrap();
-        }
-        let out = run(
-            &options("pdf"),
-            std::slice::from_ref(&dir),
-            &Config::default(),
-        )
-        .unwrap();
-        assert_eq!(out.len(), 1);
-        let long = run(
-            &Options {
-                long: true,
-                dpi: Some(36),
-                ..options("png")
-            },
-            &out,
-            &Config::default(),
-        )
-        .unwrap();
-        assert!(long[0].metadata().unwrap().len() > 0);
-    }
-
-    #[test]
-    fn folder_batch_converts_images() {
-        let dir = temp("folder-batch");
-        for name in ["a.png", "b.png"] {
-            RgbaImage::from_pixel(4, 4, ::image::Rgba([10, 20, 30, 255]))
-                .save(dir.join(name))
-                .unwrap();
-        }
-        let out = run(
-            &options("jpg"),
-            std::slice::from_ref(&dir),
-            &Config::default(),
-        )
-        .unwrap();
-        assert_eq!(out.len(), 2);
-    }
 }

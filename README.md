@@ -129,18 +129,19 @@ See `.github/workflows/release.yml` and `.github/workflows/ci.yml`.
 ```
 src/main.rs        entry point, dialogs, console output
 src/cli.rs         argument parsing and help
-src/formats.rs     extension to family, menu targets
+src/formats.rs     extension to family, targets, menu tables
 src/lang.rs        Windows display language (Portuguese/English)
-src/win.rs         wide strings, message box, TaskDialog
+src/win.rs         wide strings, message box, TaskDialog, console
 src/download.rs    HTTP download with SHA-256 check
-src/convert/       image, document, font, jxl, folder
-src/convert/pdf/   render, edit, merge
+src/tools/         locate FFmpeg/7-Zip, install the bundle
+src/menu/          install/uninstall, command strings, registry, dialog
+src/convert/       pipeline, folder, image dispatch, document, font, jxl
+src/convert/pdf/   render, edit, merge, inheritance helper
 src/convert/media/ video/audio, codecs, subtitles
-src/menu.rs        HKCU context-menu registration
+src/convert/archive/ extract and pack
 src/naming.rs      output naming, collision handling, cleanup
 src/progress.rs    marquee progress dialog for long work
-src/config.rs      SETTConverter.toml
-src/tools.rs       locate and install FFmpeg/7-Zip
+src/config/        SETTConverter.toml and its templates
 assets/            icon sources and the embedded PDFium archive
 ```
 
