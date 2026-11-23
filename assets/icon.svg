@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Fundo transparente: duas setas opostas = converter/trocar. -->
+  <g fill="#F97316" stroke="#F97316" stroke-width="30" stroke-linejoin="round" stroke-linecap="round">
+    <!-- seta para a direita -->
+    <path d="M180 310 H664 V255 L904 360 L664 465 V410 H180 Z"/>
+    <!-- seta para a esquerda -->
+    <path d="M844 614 H360 V769 L120 664 L360 559 V714 H844 Z"/>
+  </g>
+</svg>

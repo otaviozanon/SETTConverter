@@ -1,0 +1,43 @@
+[package]
+name = "settconverter"
+version = "1.0.0"
+edition = "2024"
+description = "Conversor de arquivos portátil para Windows"
+repository = "https://github.com/otaviozanon/SETTConverter"
+
+[package.metadata.winresource]
+FileDescription = "SETTConverter"
+OriginalFilename = "settconv.exe"
+
+[[bin]]
+name = "settconv"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+bzip2 = "0.6.1"
+flate2 = "1.1.11"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff", "ico", "tga", "pnm", "dds", "hdr", "exr", "qoi"] }
+lopdf = "0.47.0"
+pdf-extract = "0.12.1"
+pdfium-render = "0.9.6"
+resvg = "0.45.1"
+serde = { version = "1.0.229", features = ["derive"] }
+svg2pdf = "0.13.0"
+tar = "0.4.46"
+toml = "1.2.2"
+vtracer = "0.6.5"
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Registry", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging"] }
+walkdir = "2.5.0"
+xz2 = "0.1.7"
+zip = "9.8.1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[build-dependencies]
+winresource = "0.1.34"

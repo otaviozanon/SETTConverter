@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --release --locked
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Assemble exe and tools
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist, tools | Out-Null
+          Copy-Item target/release/settconv.exe dist/
+
+          # FFmpeg and 7-Zip, pinned; the app downloads this bundle on first use.
+          Invoke-WebRequest -UseBasicParsing `
+            -Uri "https://github.com/GyanD/codexffmpeg/releases/download/9.1/ffmpeg-9.1-essentials_build.7z" `
+            -OutFile ffmpeg.7z
+          Invoke-WebRequest -UseBasicParsing `
+            -Uri "https://github.com/ip7z/7zip/releases/download/26.06/7z2606-x64.exe" `
+            -OutFile 7z-installer.exe
+
+          $seven = (Get-Command 7z -ErrorAction SilentlyContinue).Source
+          if (-not $seven) { $seven = "$env:ProgramFiles\7-Zip\7z.exe" }
+
+          & $seven x ffmpeg.7z -offmpeg -y | Out-Null
+          & $seven x 7z-installer.exe -o7zip -y | Out-Null
+
+          $ffmpeg = Get-ChildItem ffmpeg -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          $license = Get-ChildItem ffmpeg -Recurse -Filter LICENSE | Select-Object -First 1
+          Copy-Item $ffmpeg.FullName tools/ffmpeg.exe
+          Copy-Item $license.FullName tools/ffmpeg-LICENSE.txt
+          Copy-Item 7zip/7z.exe, 7zip/7z.dll, 7zip/License.txt tools/
+          Copy-Item (Join-Path $ffmpeg.Directory.FullName 'LICENSE') tools/ffmpeg-LICENSE.txt
+
+          Compress-Archive -Path tools/* -DestinationPath dist/tools-win64.zip
+          Get-ChildItem dist | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: settconv-win64
+          path: dist/*
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/settconv.exe
+            dist/tools-win64.zip
+          generate_release_notes: true
