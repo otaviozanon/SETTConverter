@@ -6,33 +6,40 @@ process exits as soon as the file is written.
 
 ## Features
 
-| Family  | Conversions                                                                                           |
-| ------- | ----------------------------------------------------------------------------------------------------- |
-| Image   | `jpg` `png` `webp` `bmp` `tiff` `gif` `ico` `pdf` `svg` (trace)                                       |
-| Vector  | `svg`/`svgz` to `png` `jpg` `webp` `pdf`                                                              |
-| PDF     | pages to `png`/`jpg`, text to `txt`, merge, split every N pages                                       |
-| Video   | `mp4` `webm` `mkv` `mov` `gif`, audio extraction, single frame, all frames                            |
-| Audio   | `mp3` `m4a` `wav` `flac` `ogg` `opus`                                                                 |
-| Archive | extract `zip` `tar` `gz` `bz2` `xz` (`7z` `rar` via 7-Zip), repack to `tar.gz`, pack folders to `zip` |
+| Family   | Conversions                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------------- |
+| Image    | `jpg` `png` `webp` `bmp` `tiff` `gif` `ico` `avif` `pdf` `svg` (trace), `jxl` (read), resize      |
+| Animated | `gif` `webp` `apng` keep every frame; also to `mp4`/`webm`                                        |
+| Vector   | `svg`/`svgz` to `png` `jpg` `webp` `pdf`                                                          |
+| PDF      | pages to `png`/`jpg`, one long image, text to `txt`, merge, split, rotate, watermark, metadata, compress |
+| Video    | `mp4` `webm` `mkv` `mov` `gif` `apng`, audio extraction, frame at a time, trim, contact sheet      |
+| Audio    | `mp3` `m4a` `wav` `flac` `ogg` `opus`, embedded cover to `jpg`                                    |
+| Subtitle | `srt` `vtt` `ass`/`ssa`                                                                           |
+| Document | `docx` `odt` `epub` to `txt`/`md` (text only)                                                     |
+| Font     | `woff2` to `ttf`, `ttf`/`otf` to `woff2`                                                          |
+| Archive  | extract `zip` `tar` `gz` `bz2` `xz` (`7z` `rar` via 7-Zip); create `zip` `7z` `tar.gz` `tar.bz2` `tar.xz` |
 
 Output goes next to the source and never overwrites: `photo (2).png`. Parallel
 conversions never pick the same name, and phone photos are rotated by their EXIF tag.
+A folder can be converted as a batch, packed into an archive, or turned into one PDF.
 
 Images, vectors, PDF and archives are handled in-process (`image`, `resvg`, `svg2pdf`,
-PDFium, `lopdf`, `zip`). Video and audio need FFmpeg; `7z`/`rar` need 7-Zip. If the tool
-is already on this PC (PATH, `Program Files\7-Zip`, WinGet/Scoop/Chocolatey), the existing
-copy is used and nothing is downloaded. Otherwise it is fetched once (about 40 MB) into
+PDFium, `lopdf`, `zip`, `jxl-oxide`). Video, audio, subtitles, animated images, AVIF and
+`7z`/`rar` use FFmpeg and 7-Zip. If the tool is already on this PC (PATH,
+`Program Files\7-Zip`, WinGet/Scoop/Chocolatey), the existing copy is used and nothing is
+downloaded. Otherwise it is fetched once (about 40 MB) into
 `%LOCALAPPDATA%\SETTConverter\tools`, so nothing has to be installed by hand.
 
 ## Requirements
 
-To run: Windows 10 or later, x64, and internet only for the first media or `7z`/`rar`
-conversion.
+To run: Windows 10 or later, x64, and internet only for the first conversion that needs
+FFmpeg or 7-Zip.
 
 To build:
 
 - Rust with the `x86_64-pc-windows-msvc` target.
 - Windows SDK (`rc.exe`) for the embedded manifest and icon.
+- A C++ toolchain (the WOFF2 encoder builds a small C library).
 
 ## Downloads
 
@@ -51,12 +58,19 @@ On Windows 11 the entry lives under **Show more options**.
 
 ```
 SETTConverter convert --to <target> [--out DIR] [--quality 1-100] [--frames] FILE...
-SETTConverter convert --to png|jpg --dpi 300 FILE.pdf
-SETTConverter convert --to png|jpg --width 1600 FILE.pdf
+SETTConverter convert --to jpg --size 1920x1080 FILE.png
+SETTConverter convert --to png|jpg --width 1600 --dpi 300 FILE.pdf
+SETTConverter convert --to png --long FILE.pdf
+SETTConverter convert --to pdf DIR                      (one page per image)
 SETTConverter convert --to pdf --merge DIR
 SETTConverter convert --to pdf --split-every 10 FILE.pdf
-SETTConverter convert --to zip DIR
-SETTConverter convert --to tar.gz FILE.zip
+SETTConverter convert --to pdf --rotate 90 --watermark RASCUNHO FILE.pdf
+SETTConverter convert --to pdf --title TEXTO --author TEXTO FILE.pdf
+SETTConverter convert --to png --at 00:01:30 FILE.mp4
+SETTConverter convert --to mp4 --start 10 --end 60 FILE.mkv
+SETTConverter convert --to jpg --sheet FILE.mp4
+SETTConverter convert --to mp4 --strip --gpu FILE.mov
+SETTConverter convert --to zip|7z|tar.gz|tar.bz2|tar.xz DIR
 SETTConverter extract [--out DIR] FILE.zip
 SETTConverter formats
 SETTConverter version
@@ -86,7 +100,7 @@ A malformed file is reported with its path instead of being silently ignored.
 cargo build --release
 ```
 
-Result: `target\release\SETTConverter.exe`, about 13 MB, static CRT, no side-by-side DLLs.
+Result: `target\release\SETTConverter.exe`, about 15 MB, static CRT, no side-by-side DLLs.
 PDFium ships inside the exe and is extracted to `%TEMP%\settconv\pdfium` on first use.
 
 ## Releases
@@ -101,7 +115,7 @@ See `.github/workflows/release.yml`.
 ```
 src/main.rs        entry point, argument parsing, dialogs
 src/formats.rs     extension to family, menu targets
-src/convert/       image, pdf, media, archive converters
+src/convert/       image, pdf, media, archive, document, font, jxl
 src/menu.rs        HKCU context-menu registration
 src/naming.rs      output naming and collision handling
 src/progress.rs    marquee progress dialog for external tools
@@ -121,11 +135,16 @@ rebuild the ICO and compile again.
 ## License
 
 MIT. The downloaded FFmpeg (GPLv3) and 7-Zip (LGPL) keep their own licenses.
+The WOFF2 encoder inside `woofwoof` is Apache-2.0.
 
 ## Limitations
 
-- Image to GIF writes the first frame only; video to GIF is animated.
+- Static images to GIF/APNG produce a single frame; animated sources keep every frame.
+- AVIF to PDF is not supported; convert to PNG/JPG first.
+- JXL is read-only; no JXL encoder.
+- DOCX/ODT/EPUB extraction loses layout, tables and images.
 - PDF to image renders each page at 1600 px width unless `--width`/`--dpi` is given.
 - A failed conversion can leave the reserved output name as an empty file.
-- No OCR, Office, e-book, 3D, CAD, font, subtitle, metadata, translation or upscale support.
+- No OCR, Office rendering, 3D, CAD, metadata editing beyond PDF title/author, translation
+  or upscale support.
 - FFmpeg (GPLv3) and 7-Zip (LGPL) are downloaded on demand, not embedded in the exe.

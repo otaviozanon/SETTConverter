@@ -33,30 +33,27 @@ pub fn install(exe: &Path) -> Result<()> {
     }
 
     write_base(FOLDER_KEY, &exe)?;
-    write_command(
-        FOLDER_KEY,
-        "Compactar em ZIP",
-        &format!("\"{exe}\" convert --to zip \"%1\""),
-    )?;
-    write_command(
-        FOLDER_KEY,
-        "Juntar PDFs da pasta",
-        &format!("\"{exe}\" convert --to pdf --merge \"%1\""),
-    )?;
+    for (label, target) in folder_targets() {
+        write_command(FOLDER_KEY, label, &group_command(&exe, target, "%1"))?;
+    }
 
     // Right click on the empty area of a folder.
     write_base(BACKGROUND_KEY, &exe)?;
-    write_command(
-        BACKGROUND_KEY,
-        "Compactar em ZIP",
-        &format!("\"{exe}\" convert --to zip \"%V\""),
-    )?;
-    write_command(
-        BACKGROUND_KEY,
-        "Juntar PDFs da pasta",
-        &format!("\"{exe}\" convert --to pdf --merge \"%V\""),
-    )?;
+    for (label, target) in folder_targets() {
+        write_command(BACKGROUND_KEY, label, &group_command(&exe, target, "%V"))?;
+    }
     Ok(())
+}
+
+fn folder_targets() -> [(&'static str, &'static str); 6] {
+    [
+        ("Compactar em ZIP", "zip"),
+        ("Compactar em 7Z", "7z"),
+        ("Compactar em TAR.GZ", "tar.gz"),
+        ("Compactar em TAR.BZ2", "tar.bz2"),
+        ("Compactar em TAR.XZ", "tar.xz"),
+        ("Juntar PDFs da pasta", "pdf-merge"),
+    ]
 }
 
 pub fn uninstall() -> Result<()> {
@@ -130,13 +127,16 @@ fn read_string(key: &str, name: &str) -> Option<String> {
     }
 }
 
-fn families() -> [(Family, &'static [&'static str]); 6] {
+fn families() -> [(Family, &'static [&'static str]); 9] {
     [
         (Family::Image, formats::IMAGE_IN),
         (Family::Vector, formats::VECTOR_IN),
         (Family::Pdf, formats::PDF_IN),
         (Family::Video, formats::VIDEO_IN),
         (Family::Audio, formats::AUDIO_IN),
+        (Family::Subtitle, formats::SUBTITLE_IN),
+        (Family::Document, formats::DOCUMENT_IN),
+        (Family::Font, formats::FONT_IN),
         (Family::Archive, formats::ARCHIVE_IN),
     ]
 }
@@ -149,13 +149,36 @@ fn command(exe: &str, target: &str) -> String {
     if target == "extract" {
         return format!("\"{exe}\" extract \"%1\"");
     }
+    if target == "compress" {
+        return format!("\"{exe}\" convert --to pdf \"%1\"");
+    }
+    if target == "cover" {
+        return format!("\"{exe}\" convert --to jpg --cover \"%1\"");
+    }
     if let Some(every) = target.strip_prefix("pdf-split:") {
         return format!("\"{exe}\" convert --to pdf --split-every {every} \"%1\"");
+    }
+    if let Some(degrees) = target.strip_prefix("rotate:") {
+        return format!("\"{exe}\" convert --to pdf --rotate {degrees} \"%1\"");
+    }
+    if let Some(format) = target.strip_prefix("long:") {
+        return format!("\"{exe}\" convert --to {format} --long \"%1\"");
+    }
+    if let Some(format) = target.strip_prefix("sheet:") {
+        return format!("\"{exe}\" convert --to {format} --sheet \"%1\"");
     }
     if let Some(format) = target.strip_prefix("frames:") {
         return format!("\"{exe}\" convert --to {format} --frames \"%1\"");
     }
     format!("\"{exe}\" convert --to {target} \"%1\"")
+}
+
+/// Folder entry: same options, but `%V` when started from the background.
+fn group_command(exe: &str, target: &str, placeholder: &str) -> String {
+    if target == "pdf-merge" {
+        return format!("\"{exe}\" convert --to pdf --merge \"{placeholder}\"");
+    }
+    format!("\"{exe}\" convert --to {target} \"{placeholder}\"")
 }
 
 fn write_base(key: &str, exe: &str) -> Result<()> {

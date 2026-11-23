@@ -7,12 +7,15 @@ pub enum Family {
     Pdf,
     Video,
     Audio,
+    Subtitle,
+    Document,
+    Font,
     Archive,
 }
 
 pub const IMAGE_IN: &[&str] = &[
     "jpg", "jpeg", "jpe", "jfif", "png", "webp", "gif", "bmp", "dib", "tiff", "tif", "ico", "tga",
-    "icb", "vda", "vst", "ppm", "pgm", "pbm", "pnm", "dds", "hdr", "exr", "qoi",
+    "icb", "vda", "vst", "ppm", "pgm", "pbm", "pnm", "dds", "hdr", "exr", "qoi", "avif", "jxl",
 ];
 pub const VECTOR_IN: &[&str] = &["svg", "svgz"];
 pub const PDF_IN: &[&str] = &["pdf"];
@@ -24,6 +27,9 @@ pub const AUDIO_IN: &[&str] = &[
     "mp3", "m4a", "m4b", "aac", "wav", "wave", "flac", "ogg", "oga", "opus", "wma", "aiff", "aif",
     "ac3", "amr", "au", "mka", "wv", "tta", "mp2",
 ];
+pub const SUBTITLE_IN: &[&str] = &["srt", "vtt", "ass", "ssa"];
+pub const DOCUMENT_IN: &[&str] = &["docx", "odt", "epub"];
+pub const FONT_IN: &[&str] = &["ttf", "otf", "woff2"];
 pub const ARCHIVE_IN: &[&str] = &[
     "zip", "7z", "rar", "tar", "gz", "tgz", "tar.gz", "bz2", "tar.bz2", "tbz2", "xz", "tar.xz",
     "txz",
@@ -59,6 +65,12 @@ pub fn family(ext: &str) -> Option<Family> {
         Some(Family::Video)
     } else if AUDIO_IN.contains(&ext) {
         Some(Family::Audio)
+    } else if SUBTITLE_IN.contains(&ext) {
+        Some(Family::Subtitle)
+    } else if DOCUMENT_IN.contains(&ext) {
+        Some(Family::Document)
+    } else if FONT_IN.contains(&ext) {
+        Some(Family::Font)
     } else if ARCHIVE_IN.contains(&ext) {
         Some(Family::Archive)
     } else {
@@ -75,8 +87,11 @@ pub fn menu_targets(family: Family) -> &'static [(&'static str, &'static str)] {
             ("WEBP", "webp"),
             ("BMP", "bmp"),
             ("TIFF", "tiff"),
-            ("GIF", "gif"),
+            ("GIF (animado)", "gif"),
+            ("APNG (animado)", "apng"),
+            ("MP4 (animação)", "mp4"),
             ("ICO", "ico"),
+            ("AVIF", "avif"),
             ("PDF", "pdf"),
             ("SVG (vetorizar)", "svg"),
         ],
@@ -89,10 +104,14 @@ pub fn menu_targets(family: Family) -> &'static [(&'static str, &'static str)] {
         Family::Pdf => &[
             ("PNG (páginas)", "png"),
             ("JPG (páginas)", "jpg"),
+            ("PNG (imagem longa)", "long:png"),
             ("TXT (texto)", "txt"),
             ("Dividir a cada 1 página", "pdf-split:1"),
             ("Dividir a cada 10 páginas", "pdf-split:10"),
             ("Dividir a cada 50 páginas", "pdf-split:50"),
+            ("Rotacionar 90°", "rotate:90"),
+            ("Rotacionar 180°", "rotate:180"),
+            ("Comprimir", "compress"),
         ],
         Family::Video => &[
             ("MP4", "mp4"),
@@ -100,6 +119,7 @@ pub fn menu_targets(family: Family) -> &'static [(&'static str, &'static str)] {
             ("MKV", "mkv"),
             ("MOV", "mov"),
             ("GIF", "gif"),
+            ("APNG", "apng"),
             ("MP3", "mp3"),
             ("M4A", "m4a"),
             ("WAV", "wav"),
@@ -108,6 +128,7 @@ pub fn menu_targets(family: Family) -> &'static [(&'static str, &'static str)] {
             ("JPG (frame)", "jpg"),
             ("PNG (todos os frames)", "frames:png"),
             ("JPG (todos os frames)", "frames:jpg"),
+            ("JPG (folha de contatos)", "sheet:jpg"),
         ],
         Family::Audio => &[
             ("MP3", "mp3"),
@@ -116,8 +137,17 @@ pub fn menu_targets(family: Family) -> &'static [(&'static str, &'static str)] {
             ("FLAC", "flac"),
             ("OGG", "ogg"),
             ("OPUS", "opus"),
+            ("Capa (JPG)", "cover"),
         ],
-        Family::Archive => &[("Extrair aqui", "extract"), ("TAR.GZ", "tar.gz")],
+        Family::Subtitle => &[("SRT", "srt"), ("VTT", "vtt"), ("ASS", "ass")],
+        Family::Document => &[("TXT", "txt"), ("Markdown", "md")],
+        Family::Font => &[("TTF", "ttf"), ("WOFF2", "woff2")],
+        Family::Archive => &[
+            ("Extrair aqui", "extract"),
+            ("TAR.GZ", "tar.gz"),
+            ("TAR.BZ2", "tar.bz2"),
+            ("TAR.XZ", "tar.xz"),
+        ],
     }
 }
 
@@ -139,6 +169,7 @@ pub fn is_image_target(to: &str) -> bool {
             | "hdr"
             | "exr"
             | "qoi"
+            | "avif"
     )
 }
 
@@ -160,7 +191,11 @@ mod tests {
         assert_eq!(family("svg"), Some(Family::Vector));
         assert_eq!(family("mp4"), Some(Family::Video));
         assert_eq!(family("zip"), Some(Family::Archive));
-        assert_eq!(family("docx"), None);
+        assert_eq!(family("srt"), Some(Family::Subtitle));
+        assert_eq!(family("docx"), Some(Family::Document));
+        assert_eq!(family("woff2"), Some(Family::Font));
+        assert_eq!(family("docx"), Some(Family::Document));
+        assert_eq!(family("bin"), None);
     }
 
     #[test]
@@ -171,6 +206,9 @@ mod tests {
             Family::Pdf,
             Family::Video,
             Family::Audio,
+            Family::Subtitle,
+            Family::Document,
+            Family::Font,
             Family::Archive,
         ] {
             assert!(!menu_targets(f).is_empty());

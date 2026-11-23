@@ -246,6 +246,19 @@ fn run(args: &[String]) -> Result<String> {
                     frames: false,
                     width: None,
                     dpi: None,
+                    size: None,
+                    strip: false,
+                    at: None,
+                    start: None,
+                    end: None,
+                    rotate: None,
+                    title: None,
+                    author: None,
+                    watermark: None,
+                    long: false,
+                    sheet: false,
+                    cover: false,
+                    gpu: false,
                 },
                 &inputs,
                 &cfg,
@@ -261,6 +274,19 @@ fn run(args: &[String]) -> Result<String> {
             let mut frames = false;
             let mut width = None;
             let mut dpi = None;
+            let mut size = None;
+            let mut strip = false;
+            let mut at = None;
+            let mut start = None;
+            let mut end = None;
+            let mut rotate = None;
+            let mut title = None;
+            let mut author = None;
+            let mut watermark = None;
+            let mut long = false;
+            let mut sheet = false;
+            let mut cover = false;
+            let mut gpu = false;
             let mut inputs: Vec<PathBuf> = Vec::new();
             let mut index = 0;
 
@@ -279,6 +305,19 @@ fn run(args: &[String]) -> Result<String> {
                     "--split-every" => split_every = Some(value(&mut index)?.parse()?),
                     "--width" => width = Some(value(&mut index)?.parse()?),
                     "--dpi" => dpi = Some(value(&mut index)?.parse()?),
+                    "--size" => size = Some(parse_size(&value(&mut index)?)?),
+                    "--strip" => strip = true,
+                    "--at" => at = Some(value(&mut index)?),
+                    "--start" => start = Some(value(&mut index)?),
+                    "--end" => end = Some(value(&mut index)?),
+                    "--rotate" => rotate = Some(value(&mut index)?.parse()?),
+                    "--title" => title = Some(value(&mut index)?),
+                    "--author" => author = Some(value(&mut index)?),
+                    "--watermark" => watermark = Some(value(&mut index)?),
+                    "--long" => long = true,
+                    "--sheet" => sheet = true,
+                    "--cover" => cover = true,
+                    "--gpu" => gpu = true,
                     "--merge" => merge = true,
                     "--frames" => frames = true,
                     other if other.starts_with('-') => bail!("opcao desconhecida: {other}"),
@@ -303,6 +342,19 @@ fn run(args: &[String]) -> Result<String> {
                     frames,
                     width,
                     dpi,
+                    size,
+                    strip,
+                    at,
+                    start,
+                    end,
+                    rotate,
+                    title,
+                    author,
+                    watermark,
+                    long,
+                    sheet,
+                    cover,
+                    gpu,
                 },
                 &inputs,
                 &cfg,
@@ -329,9 +381,22 @@ fn report(written: Vec<PathBuf>) -> Result<String> {
     Ok(text)
 }
 
+fn parse_size(text: &str) -> Result<(u32, u32)> {
+    let lower = text.to_lowercase();
+    match lower.split_once('x') {
+        Some((width, height)) => Ok((width.parse()?, height.parse()?)),
+        None => Ok((lower.parse()?, 0)),
+    }
+}
+
 fn help() -> Result<String> {
     Ok(format!(
-        "SETTConverter {}\n\n{}\n\nMenu do Explorer: SETTConverter menu install | uninstall\n\
+        "SETTConverter {}\n\n{}\n\n\
+         Opcoes: --out DIR --size 1920x1080 --quality 1-100 --strip\n\
+         \x20        --at 00:01:30 --start 10 --end 60 --gpu\n\
+         \x20        --width 1600 --dpi 300 --long --sheet\n\
+         \x20        --rotate 90 --title TEXTO --author TEXTO --watermark TEXTO\n\n\
+         Menu do Explorer: SETTConverter menu install | uninstall\n\
          Config: SETTConverter\\Settings\\SETTConverter.toml ao lado do exe \
          (jpg_quality, webp_quality, ffmpeg, seven_zip)\n\
          FFmpeg e 7-Zip: baixados uma vez em %LOCALAPPDATA%\\SETTConverter\\tools",
@@ -343,7 +408,9 @@ fn help() -> Result<String> {
 fn formats_help() -> String {
     use formats::Family::*;
     let mut text = String::from("alvos por familia:");
-    for family in [Image, Vector, Pdf, Video, Audio, Archive] {
+    for family in [
+        Image, Vector, Pdf, Video, Audio, Subtitle, Document, Font, Archive,
+    ] {
         let targets: Vec<&str> = formats::menu_targets(family)
             .iter()
             .map(|(_, target)| *target)

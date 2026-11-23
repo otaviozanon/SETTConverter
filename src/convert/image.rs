@@ -11,6 +11,7 @@ pub fn convert(
     to: &str,
     quality: u8,
     out_dir: Option<&Path>,
+    size: Option<(u32, u32)>,
 ) -> Result<Vec<PathBuf>> {
     let dir = out_dir
         .map(Path::to_path_buf)
@@ -22,17 +23,43 @@ pub fn convert(
         trace(input, &out)?;
         return Ok(vec![out]);
     }
-    let img = decode(input)?;
+    let mut img = decode(input)?;
+    apply_size(&mut img, size);
     if to == "pdf" {
         to_pdf(&img, &out)?;
         return Ok(vec![out]);
     }
-    save(&img, &out, to, quality)?;
+    save_image(&img, &out, to, quality)?;
     Ok(vec![out])
 }
 
+/// Scales to the requested box; a missing side keeps the aspect ratio.
+pub fn apply_size(image: &mut DynamicImage, size: Option<(u32, u32)>) {
+    let Some((width, height)) = size else {
+        return;
+    };
+    let (source_width, source_height) = (image.width().max(1), image.height().max(1));
+    let (target_width, target_height) = match (width, height) {
+        (0, 0) => return,
+        (width, 0) => (
+            width.max(1),
+            ((source_height as u64 * width as u64) / source_width as u64).max(1) as u32,
+        ),
+        (0, height) => (
+            ((source_width as u64 * height as u64) / source_height as u64).max(1) as u32,
+            height.max(1),
+        ),
+        (width, height) => (width.max(1), height.max(1)),
+    };
+    *image = image.resize_exact(
+        target_width,
+        target_height,
+        image::imageops::FilterType::Lanczos3,
+    );
+}
+
 /// Reads the pixels and applies the EXIF orientation, so phone photos are not stored sideways.
-fn decode(input: &Path) -> Result<DynamicImage> {
+pub fn decode(input: &Path) -> Result<DynamicImage> {
     let file = File::open(input).with_context(|| format!("abrir {}", input.display()))?;
     let mut decoder = image::ImageReader::new(BufReader::new(file))
         .with_guessed_format()
@@ -53,6 +80,7 @@ pub fn convert_svg(
     to: &str,
     quality: u8,
     out_dir: Option<&Path>,
+    size: Option<(u32, u32)>,
 ) -> Result<Vec<PathBuf>> {
     let data = std::fs::read(input).with_context(|| format!("abrir {}", input.display()))?;
     let mut options = resvg::usvg::Options::default();
@@ -77,8 +105,8 @@ pub fn convert_svg(
         return Ok(vec![out]);
     }
 
-    let size = tree.size().to_int_size();
-    let (w, h) = (size.width().max(1), size.height().max(1));
+    let svg_size = tree.size().to_int_size();
+    let (w, h) = (svg_size.width().max(1), svg_size.height().max(1));
     let mut pixmap = resvg::tiny_skia::Pixmap::new(w, h).context("alocar bitmap do SVG")?;
     resvg::render(
         &tree,
@@ -86,11 +114,13 @@ pub fn convert_svg(
         &mut pixmap.as_mut(),
     );
     let rgba = RgbaImage::from_raw(w, h, pixmap.data().to_vec()).context("bitmap do SVG")?;
-    save(&DynamicImage::ImageRgba8(rgba), &out, to, quality)?;
+    let mut image = DynamicImage::ImageRgba8(rgba);
+    apply_size(&mut image, size);
+    save_image(&image, &out, to, quality)?;
     Ok(vec![out])
 }
 
-fn save(img: &DynamicImage, out: &Path, to: &str, quality: u8) -> Result<()> {
+pub fn save_image(img: &DynamicImage, out: &Path, to: &str, quality: u8) -> Result<()> {
     match to {
         "jpg" | "jpeg" => {
             let rgb = img.to_rgb8();
@@ -100,7 +130,7 @@ fn save(img: &DynamicImage, out: &Path, to: &str, quality: u8) -> Result<()> {
         }
         "png" => img.save_with_format(out, ImageFormat::Png)?,
         "webp" => img.save_with_format(out, ImageFormat::WebP)?,
-        // shortcut: GIF recebe so o primeiro frame, animacao fica para depois.
+        // Animated sources and targets go through FFmpeg; here one frame is enough.
         "gif" => img.save_with_format(out, ImageFormat::Gif)?,
         "bmp" => img.save_with_format(out, ImageFormat::Bmp)?,
         "tiff" | "tif" => img.save_with_format(out, ImageFormat::Tiff)?,
@@ -119,7 +149,7 @@ fn save(img: &DynamicImage, out: &Path, to: &str, quality: u8) -> Result<()> {
     Ok(())
 }
 
-fn to_pdf(img: &DynamicImage, out: &Path) -> Result<()> {
+pub fn to_pdf(img: &DynamicImage, out: &Path) -> Result<()> {
     use lopdf::{Dictionary, Document, Object, Stream};
 
     let rgb = img.to_rgb8();

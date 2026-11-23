@@ -1,6 +1,6 @@
 [package]
 name = "settconverter"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 description = "Conversor de arquivos portátil para Windows"
 repository = "https://github.com/otaviozanon/SETTConverter"
@@ -33,6 +33,9 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Stora
 walkdir = "2.5.0"
 xz2 = "0.1.7"
 zip = "9.8.1"
+jxl-oxide = "0.12.6"
+quick-xml = "0.42.0"
+woofwoof = "1.0.2"
 
 [profile.release]
 opt-level = "s"

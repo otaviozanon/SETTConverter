@@ -45,6 +45,34 @@ pub fn extract(input: &Path, cfg: &Config, out_dir: Option<&Path>) -> Result<Vec
     Ok(vec![folder])
 }
 
+/// Archive format for `pack_tar` / `repack`.
+#[derive(Clone, Copy)]
+pub enum TarKind {
+    Gz,
+    Bz2,
+    Xz,
+}
+
+impl TarKind {
+    /// From the output extension (`tar.gz`, `tar.bz2`, `tar.xz`).
+    pub fn of(ext: &str) -> Option<Self> {
+        match ext {
+            "tar.gz" => Some(TarKind::Gz),
+            "tar.bz2" => Some(TarKind::Bz2),
+            "tar.xz" => Some(TarKind::Xz),
+            _ => None,
+        }
+    }
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            TarKind::Gz => "tar.gz",
+            TarKind::Bz2 => "tar.bz2",
+            TarKind::Xz => "tar.xz",
+        }
+    }
+}
+
 pub fn pack_zip(inputs: &[PathBuf], out: &Path) -> Result<()> {
     let file = File::create(out)?;
     let mut zip = ZipWriter::new(BufWriter::new(file));
@@ -69,10 +97,75 @@ pub fn pack_zip(inputs: &[PathBuf], out: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn repack_targz(input: &Path, out: &Path) -> Result<()> {
+pub fn pack_tar(inputs: &[PathBuf], out: &Path, kind: TarKind) -> Result<()> {
+    let file = File::create(out)?;
+    match kind {
+        TarKind::Gz => tar_into(
+            inputs,
+            flate2::write::GzEncoder::new(file, Compression::default()),
+        ),
+        TarKind::Bz2 => tar_into(
+            inputs,
+            bzip2::write::BzEncoder::new(file, bzip2::Compression::default()),
+        ),
+        TarKind::Xz => tar_into(inputs, xz2::write::XzEncoder::new(file, 6)),
+    }
+}
+
+fn tar_into<W: std::io::Write>(inputs: &[PathBuf], writer: W) -> Result<()> {
+    let mut tar = tar::Builder::new(writer);
+    for input in inputs {
+        if input.is_dir() {
+            tar.append_dir_all(input.file_name().unwrap_or_default(), input)?;
+        } else {
+            tar.append_path(input)?;
+        }
+    }
+    // shortcut: o compressor fecha o trailer no Drop; erro de disco no fim não é reportado.
+    tar.finish()?;
+    Ok(())
+}
+
+pub fn pack_7z(inputs: &[PathBuf], out: &Path, cfg: &Config) -> Result<()> {
+    let seven = crate::tools::seven_zip(cfg)?;
+    // claim() already created an empty placeholder; 7-Zip will not reuse it.
+    let _ = std::fs::remove_file(out);
+    let mut command = std::process::Command::new(seven);
+    command.arg("a").arg("-y").arg(out);
+    for input in inputs {
+        command.arg(input);
+    }
+    let output = crate::progress::run("Compactando em 7Z...", &mut command)?;
+    if !output.status.success() {
+        bail!(
+            "7-Zip falhou: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    if !out.is_file() {
+        bail!("7-Zip não criou {}", out.display());
+    }
+    Ok(())
+}
+
+pub fn repack(input: &Path, out: &Path, kind: TarKind) -> Result<()> {
+    let file = File::create(out)?;
+    match kind {
+        TarKind::Gz => repack_into(
+            input,
+            flate2::write::GzEncoder::new(file, Compression::default()),
+        ),
+        TarKind::Bz2 => repack_into(
+            input,
+            bzip2::write::BzEncoder::new(file, bzip2::Compression::default()),
+        ),
+        TarKind::Xz => repack_into(input, xz2::write::XzEncoder::new(file, 6)),
+    }
+}
+
+fn repack_into<W: std::io::Write>(input: &Path, writer: W) -> Result<()> {
     let mut zip = ZipArchive::new(File::open(input)?)?;
-    let encoder = flate2::write::GzEncoder::new(File::create(out)?, Compression::default());
-    let mut tar = tar::Builder::new(encoder);
+    let mut tar = tar::Builder::new(writer);
     for index in 0..zip.len() {
         let mut entry = zip.by_index(index)?;
         if entry.is_dir() {
@@ -189,6 +282,27 @@ mod tests {
         let target = dir.join("out");
         extract_zip(&archive, &target).unwrap();
         assert_eq!(std::fs::read(target.join("src/a.txt")).unwrap(), b"hello");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tar_round_trip() {
+        let dir = std::env::temp_dir().join(format!("settconv-tar-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/a.txt"), b"hello").unwrap();
+        for kind in [TarKind::Gz, TarKind::Bz2, TarKind::Xz] {
+            let archive = dir.join(format!("a.{}", kind.extension()));
+            pack_tar(&[dir.join("src")], &archive, kind).unwrap();
+            assert!(archive.metadata().unwrap().len() > 0);
+            let folder = extract(&archive, &Config::default(), None).unwrap();
+            let found = WalkDir::new(&folder[0])
+                .into_iter()
+                .filter_map(|entry| entry.ok())
+                .any(|entry| entry.file_name() == "a.txt");
+            assert!(found, "{} lost the file", kind.extension());
+            let _ = std::fs::remove_dir_all(&folder[0]);
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
