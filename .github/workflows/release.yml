@@ -58,7 +58,7 @@ jobs:
           }
           foreach ($file in $pins.Keys) {
             $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
-            if ($actual -ne $pins[$file]) { throw "$file: SHA-256 mismatch ($actual)" }
+            if ($actual -ne $pins[$file]) { throw "${file}: SHA-256 mismatch ($actual)" }
           }
 
           $seven = (Get-Command 7z -ErrorAction SilentlyContinue).Source
