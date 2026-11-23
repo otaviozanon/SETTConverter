@@ -436,6 +436,7 @@ fn pdfium() -> Result<pdfium_render::prelude::Pdfium> {
 
 static PDFIUM_TGZ: &[u8] = include_bytes!("../../assets/pdfium-win-x64.tgz");
 const PDFIUM_MIN_BYTES: u64 = 1_000_000;
+static PDFIUM_TEMP_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 fn ensure_pdfium() -> Result<PathBuf> {
     let dir = std::env::temp_dir().join("settconv").join("pdfium");
@@ -449,7 +450,9 @@ fn ensure_pdfium() -> Result<PathBuf> {
     std::fs::create_dir_all(&dir)?;
     let decoder = flate2::read::GzDecoder::new(PDFIUM_TGZ);
     let mut archive = tar::Archive::new(decoder);
-    let temp = dir.join(format!("pdfium.{}.tmp", std::process::id()));
+    // Unique per call: parallel converters in one process share the temp folder.
+    let counter = PDFIUM_TEMP_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temp = dir.join(format!("pdfium.{}.{}.tmp", std::process::id(), counter));
     let mut found = false;
     for entry in archive.entries()? {
         let mut entry = entry?;
