@@ -28,30 +28,10 @@ copy is used and nothing is downloaded. Otherwise it is fetched once (about 40 M
 To run: Windows 10 or later, x64, and internet only for the first media or `7z`/`rar`
 conversion.
 
-To build:
-
-- Rust with the `x86_64-pc-windows-msvc` target.
-- Windows SDK (`rc.exe`) for the embedded manifest and icon.
-
 ## Downloads
 
 Grab `settconv.exe` from the [latest release](https://github.com/otaviozanon/SETTConverter/releases/latest).
 The release also carries `tools-win64.zip` (FFmpeg and 7-Zip), which the exe fetches on demand.
-
-## Build
-
-```powershell
-cargo build --release
-```
-
-Result: `target\release\settconv.exe`, about 12 MB, static CRT, no side-by-side DLLs.
-PDFium ships inside the exe and is extracted to `%TEMP%\settconv\pdfium` on first use.
-
-## Releases
-
-Pushing a `v*` tag (or running the workflow manually) builds and tests on
-`windows-latest`, then publishes the exe and `tools-win64.zip` as release assets.
-See `.github/workflows/release.yml`.
 
 ## Install the Explorer menu
 
@@ -59,28 +39,6 @@ Double-click `settconv.exe` and choose **Install menu** in the dialog. This writ
 to `HKCU` (no administrator rights) and removes cleanly with **Remove menu**.
 
 On Windows 11 the entry lives under **Show more options**.
-
-Command line equivalent:
-
-```powershell
-settconv.exe menu install
-settconv.exe menu uninstall
-```
-
-The registered command points at the executable path, so reinstall after moving the file.
-
-## Command line
-
-```
-settconv convert --to <target> [--out DIR] [--quality 1-100] [--frames] FILE...
-settconv convert --to pdf --merge DIR
-settconv convert --to pdf --split-every 10 FILE.pdf
-settconv convert --to zip DIR
-settconv convert --to tar.gz FILE.zip
-settconv extract FILE.zip
-settconv formats
-settconv version
-```
 
 ## Configuration
 
@@ -92,27 +50,6 @@ webp_quality = 85
 ffmpeg = "C:\\tools\\ffmpeg.exe"
 seven_zip = "C:\\Program Files\\7-Zip\\7z.exe"
 ```
-
-## Layout
-
-```
-src/main.rs        entry point, argument parsing, dialogs
-src/formats.rs     extension to family, menu targets
-src/convert/       image, pdf, media, archive converters
-src/menu.rs        HKCU context-menu registration
-src/naming.rs      output naming and collision handling
-src/config.rs      settconv.toml
-src/tools.rs       one-time download of FFmpeg and 7-Zip
-assets/            icon sources and the embedded PDFium archive
-```
-
-## Icon
-
-Drawn in `assets/icon.svg`: two opposing orange arrows on a transparent background.
-Rasterized to `assets/icon.png`, packed into `assets/icon.ico` with seven sizes
-(16 to 256), embedded by `build.rs` together with the manifest.
-To change it: edit the SVG, run `settconv convert --to png assets/icon.svg --out assets`,
-rebuild the ICO and compile again.
 
 ## Limitations
 
