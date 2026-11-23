@@ -30,7 +30,7 @@ fn find(configured: Option<&str>, name: &str) -> Result<PathBuf> {
             return Ok(path);
         }
     }
-    if let Some(path) = on_path(name) {
+    if let Some(path) = locate(name) {
         return Ok(path);
     }
     let cached = dir().join(name);
@@ -45,12 +45,38 @@ fn find(configured: Option<&str>, name: &str) -> Result<PathBuf> {
     }
 }
 
-fn on_path(name: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|paths| {
+/// Already usable on this PC: on PATH or in a standard install location.
+fn locate(name: &str) -> Option<PathBuf> {
+    let on_path = std::env::var_os("PATH").and_then(|paths| {
         std::env::split_paths(&paths)
             .map(|dir| dir.join(name))
             .find(|candidate| candidate.is_file())
-    })
+    });
+    on_path.or_else(|| installed(name))
+}
+
+fn installed(name: &str) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if name == "7z.exe" {
+        for base in [user_env("ProgramFiles"), user_env("ProgramFiles(x86)")] {
+            if let Some(base) = base {
+                candidates.push(base.join("7-Zip").join("7z.exe"));
+            }
+        }
+    } else {
+        if let Some(local) = user_env("LOCALAPPDATA") {
+            candidates.push(local.join("Microsoft").join("WinGet").join("Links").join("ffmpeg.exe"));
+        }
+        if let Some(home) = user_env("USERPROFILE") {
+            candidates.push(home.join("scoop").join("shims").join("ffmpeg.exe"));
+        }
+        candidates.push(PathBuf::from(r"C:\ProgramData\chocolatey\bin\ffmpeg.exe"));
+    }
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+fn user_env(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name).map(PathBuf::from)
 }
 
 pub fn dir() -> PathBuf {
@@ -67,9 +93,13 @@ pub fn ensure() -> Result<PathBuf> {
     if complete(&dir) {
         return Ok(dir);
     }
+    // One instance downloads; the others wait and then reuse the result.
+    let _guard = lock(&dir)?;
+    if complete(&dir) {
+        return Ok(dir);
+    }
     notice();
     let zip_path = std::env::temp_dir().join(format!("settconv-tools-{}.zip", std::process::id()));
-    // shortcut: duas conversões simultâneas podem baixar em paralelo; o rename por arquivo mantém o resultado íntegro.
     let result = download(TOOLS_URL, &zip_path).and_then(|()| install(&zip_path, &dir));
     let _ = std::fs::remove_file(&zip_path);
     result?;
@@ -78,6 +108,39 @@ pub fn ensure() -> Result<PathBuf> {
     }
     verify(&dir)?;
     Ok(dir)
+}
+
+/// Exclusive lock on the tools folder: CreateFileW with no sharing, retried.
+fn lock(dir: &Path) -> Result<File> {
+    use std::os::windows::io::FromRawHandle;
+    use windows_sys::Win32::Foundation::{GENERIC_WRITE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_ATTRIBUTE_NORMAL, OPEN_ALWAYS,
+    };
+
+    std::fs::create_dir_all(dir)?;
+    let path = wide(&dir.join(".lock").to_string_lossy());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+    loop {
+        let handle = unsafe {
+            CreateFileW(
+                path.as_ptr(),
+                GENERIC_WRITE,
+                0,
+                std::ptr::null(),
+                OPEN_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL,
+                std::ptr::null_mut(),
+            )
+        };
+        if handle != INVALID_HANDLE_VALUE {
+            return Ok(unsafe { File::from_raw_handle(handle as _) });
+        }
+        if std::time::Instant::now() > deadline {
+            bail!("outra conversão está baixando as ferramentas; tente de novo em instantes");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
 }
 
 fn complete(dir: &Path) -> bool {
@@ -101,7 +164,14 @@ fn install(zip_path: &Path, dir: &Path) -> Result<()> {
         let mut file = File::create(&temp)?;
         std::io::copy(&mut entry, &mut file)?;
         drop(file);
-        std::fs::rename(&temp, dir.join(name))?;
+        if let Err(error) = std::fs::rename(&temp, dir.join(name)) {
+            // Another instance may be replacing the same file right now.
+            if dir.join(name).is_file() {
+                let _ = std::fs::remove_file(&temp);
+            } else {
+                return Err(error.into());
+            }
+        }
     }
     Ok(())
 }
@@ -142,15 +212,23 @@ fn download(url: &str, out: &Path) -> Result<()> {
 }
 
 fn verify(dir: &Path) -> Result<()> {
-    let output = std::process::Command::new(dir.join("ffmpeg.exe"))
-        .arg("-version")
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .context("executar o ffmpeg baixado")?;
-    if !output.status.success() {
-        bail!("o ffmpeg baixado não executou");
+    let mut attempts = 0;
+    loop {
+        let output = std::process::Command::new(dir.join("ffmpeg.exe"))
+            .arg("-version")
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        match output {
+            Ok(output) if output.status.success() => return Ok(()),
+            // A parallel instance may be swapping the file: retry once.
+            Err(_) if attempts == 0 => {
+                attempts += 1;
+                std::thread::sleep(std::time::Duration::from_millis(400));
+            }
+            Ok(_) => bail!("o ffmpeg baixado não executou"),
+            Err(error) => return Err(error).context("executar o ffmpeg baixado"),
+        }
     }
-    Ok(())
 }
 
 /// Explorer runs the exe without a console: warn before a silent 40 MB download.

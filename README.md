@@ -18,8 +18,9 @@ process exits as soon as the file is written.
 Output goes next to the source and never overwrites: `photo (2).png`.
 
 Images, vectors, PDF and archives are handled in-process (`image`, `resvg`, `svg2pdf`,
-PDFium, `lopdf`, `zip`). Video and audio need FFmpeg; `7z`/`rar` need 7-Zip. Those two
-are downloaded automatically on first use (about 40 MB) into
+PDFium, `lopdf`, `zip`). Video and audio need FFmpeg; `7z`/`rar` need 7-Zip. If the tool
+is already on this PC (PATH, `Program Files\7-Zip`, WinGet/Scoop/Chocolatey), the existing
+copy is used and nothing is downloaded. Otherwise it is fetched once (about 40 MB) into
 `%LOCALAPPDATA%\SETTConverter\tools`, so nothing has to be installed by hand.
 
 ## Requirements
@@ -34,8 +35,8 @@ To build:
 
 ## Downloads
 
-Grab `settconv.exe` from the [latest release](../../releases/latest). The release also
-carries `tools-win64.zip` (FFmpeg and 7-Zip), which the exe fetches on demand.
+Grab `settconv.exe` from the [latest release](https://github.com/otaviozanon/SETTConverter/releases/latest).
+The release also carries `tools-win64.zip` (FFmpeg and 7-Zip), which the exe fetches on demand.
 
 ## Build
 
