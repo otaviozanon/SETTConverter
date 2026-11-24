@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.0
+
+- Settings file now covers image, PDF, video, audio and tool behaviour. New keys:
+  `avif_quality`, `png_compression`, `gif_quality`, `ico_size`, `pdf_width`,
+  `pdf_dpi`, `pdf_jpeg`, `image_pdf_dpi`, `video_quality`, `video_preset`,
+  `audio_bitrate`, `gif_fps`, `gif_width`, `gpu`, `strip`, `subtitle_encoding`
+  and `download_tools`.
+- Static WebP is now really lossy and honors `webp_quality` (previously the in-process
+  encoder was always lossless).
+- `--quality` and the matching keys now reach video, animated WebP/MP4/WebM, video
+  frames, audio covers and AVI. `audio_bitrate` also applies to MP3 and Ogg Vorbis.
+  PNG compression level is configurable.
+- Image to PDF can embed JPEG (`pdf_jpeg = true`) instead of lossless RGB.
+
 ## 1.2.5
 
 - `--force` writes to a temporary file and renames on success: a failed conversion

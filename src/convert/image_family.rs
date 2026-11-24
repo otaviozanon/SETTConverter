@@ -19,6 +19,14 @@ pub(super) fn convert(
     config: &Config,
 ) -> Result<Vec<PathBuf>> {
     let to = options.to.as_str();
+    let save = image::SaveOptions {
+        quality,
+        png: config.png_compression(),
+        gif: config.gif_quality(),
+        ico: config.ico_size(),
+        pdf_jpeg: config.pdf_jpeg().then_some(quality),
+        pdf_dpi: config.image_pdf_dpi(),
+    };
 
     // JPEG XL has no FFmpeg decoder in the essentials build.
     if extension == "jxl" {
@@ -32,7 +40,7 @@ pub(super) fn convert(
                 &crate::naming::stem_of(input),
                 "pdf",
             )?;
-            image::to_pdf(&decoded, &out)?;
+            image::to_pdf(&decoded, &out, save.pdf_jpeg, save.pdf_dpi)?;
             return Ok(vec![out.into_path()?]);
         }
         if !formats::is_image_target(to) {
@@ -48,7 +56,7 @@ pub(super) fn convert(
             &crate::naming::stem_of(input),
             to,
         )?;
-        image::save_image(&decoded, &out, to, quality)?;
+        image::save_image(&decoded, &out, to, save)?;
         return Ok(vec![out.into_path()?]);
     }
 
@@ -76,7 +84,7 @@ pub(super) fn convert(
 
     if formats::family(extension) == Some(Family::Vector) {
         if to == "pdf" || formats::is_image_target(to) {
-            return image::convert_svg(input, to, quality, out_dir, options.size);
+            return image::convert_svg(input, to, save, out_dir, options.size);
         }
         bail!(
             "{} .{to}",
@@ -85,7 +93,7 @@ pub(super) fn convert(
     }
 
     if to == "pdf" || to == "svg" || formats::is_image_target(to) {
-        image::convert(input, to, quality, out_dir, options.size)
+        image::convert(input, to, save, out_dir, options.size)
     } else {
         bail!(
             "{} .{to}",
@@ -116,7 +124,12 @@ fn ffmpeg_to_pdf(
             .map(Path::to_path_buf)
             .unwrap_or_else(|| crate::naming::parent_of(input));
         let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), "pdf")?;
-        image::to_pdf(&image, &out)?;
+        image::to_pdf(
+            &image,
+            &out,
+            config.pdf_jpeg().then_some(quality),
+            config.image_pdf_dpi(),
+        )?;
         out.into_path()
     })();
     let _ = std::fs::remove_dir_all(&temp);

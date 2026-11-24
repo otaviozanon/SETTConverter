@@ -93,19 +93,50 @@ Explorer; PDF rendering does too. From a terminal they stay quiet.
 
 The first run creates `SETTConverter\Settings\SETTConverter.toml` next to the exe
 (`%LOCALAPPDATA%\SETTConverter\Settings` when the exe folder is read-only). Every key
-starts commented out; remove the `#` from what you want to change:
+starts commented out; remove the `#` from what you want to change. Out-of-range values
+are clamped. Defaults apply without the file.
 
 ```toml
-jpg_quality = 90
-webp_quality = 85
+# Images
+jpg_quality = 90          # JPG quality (1-100)
+webp_quality = 85         # WebP quality (1-100), static and animated
+avif_quality = 90         # AVIF quality (1-100); empty falls back to jpg_quality
+png_compression = 1       # PNG zlib level (0-9): smaller file, slower encode
+gif_quality = 100         # Static GIF quality (1-100)
+ico_size = 256            # ICO size in pixels (1-256)
+
+# PDF
+pdf_width = 1600          # PDF to image default width (dpi wins when set)
+pdf_dpi = 150             # PDF to image default DPI
+pdf_jpeg = false          # Image to PDF: embed JPEG instead of lossless RGB
+image_pdf_dpi = 96        # Page DPI when creating a PDF from an image
+
+# Video and audio
+video_quality = 75        # 1-100, mapped to CRF; 75 reproduces CRF 23
+video_preset = "medium"   # H.264: ultrafast, fast, medium, slow, veryslow
+audio_bitrate = "192k"    # AAC, MP3, Opus, Vorbis; empty keeps 192k/128k
+gif_fps = 15              # GIF from video: frames per second
+gif_width = 480           # GIF from video: width in pixels
+gpu = false               # Try NVIDIA NVENC first; falls back to CPU
+strip = false             # Remove GPS/camera metadata from video and audio
+subtitle_encoding = "windows-1252"  # Subtitle input encoding; empty detects
+
+# Files and tools
 out_dir = "C:\\Converted"
 overwrite = false
 ffmpeg = "C:\\tools\\ffmpeg.exe"
 seven_zip = "C:\\Program Files\\7-Zip\\7z.exe"
+download_tools = true     # Download FFmpeg/7-Zip when they are missing
 ```
 
-A malformed file is reported with its path instead of being silently ignored.
-`overwrite = true` (or `--force`) reuses the plain name instead of ` (2)`.
+The lines above show the built-in defaults.
+
+`--quality` overrides the per-format quality for that run. `overwrite = true` (or
+`--force`) reuses the plain name instead of ` (2)`. A malformed file is reported with
+its path instead of being silently ignored. Lossless targets (BMP, TIFF, TGA, PNM, DDS,
+HDR, EXR, QOI, APNG) have no quality setting. `jpg → heic` and any `→ jxl` are not
+supported: both formats are read-only.
+
 
 ## Build
 
@@ -156,14 +187,16 @@ rebuild the ICO and compile again.
 ## License
 
 MIT. The downloaded FFmpeg (GPLv3) and 7-Zip (LGPL) keep their own licenses.
-The WOFF2 encoder inside `woofwoof` is Apache-2.0.
+The WOFF2 encoder inside `woofwoof` is Apache-2.0 and the WebP encoder (libwebp) is
+BSD-3-Clause.
 
 ## Limitations
 
 - Static images to GIF/APNG produce a single frame; animated sources keep every frame.
 - JXL and HEIC/HEIF are read-only; no JXL or HEIC encoder.
 - DOCX/ODT/EPUB extraction loses layout, tables and images.
-- PDF to image renders each page at 1600 px width unless `--width`/`--dpi` is given.
+- PDF to image renders each page at 1600 px width unless `--width`/`--dpi` or
+  `pdf_width`/`pdf_dpi` is set.
 - Paths longer than 260 characters need `LongPathsEnabled` in Windows; the manifest is
   long-path aware, but FFmpeg/PDFium still depend on the system policy.
 - No OCR, Office rendering, 3D, CAD, metadata editing beyond PDF title/author, translation

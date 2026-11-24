@@ -145,3 +145,95 @@ fn folder_batch_converts_images() {
     .unwrap();
     assert_eq!(out.len(), 2);
 }
+
+#[test]
+fn png_keeps_alpha_at_every_compression_level() {
+    let dir = temp("png-compression");
+    let source = dir.join("alpha.png");
+    RgbaImage::from_fn(32, 32, |x, y| {
+        ::image::Rgba([(x * 8) as u8, (y * 8) as u8, 0, 128])
+    })
+    .save(&source)
+    .unwrap();
+
+    for level in [0, 9] {
+        let out = run(
+            &options("png"),
+            std::slice::from_ref(&source),
+            &Config {
+                png_compression: Some(level),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let decoded = ::image::open(&out[0]).unwrap().to_rgba8();
+        assert_eq!(decoded.dimensions(), (32, 32));
+        assert_eq!(decoded.get_pixel(1, 2)[3], 128);
+    }
+}
+
+#[test]
+fn webp_quality_changes_the_output() {
+    let dir = temp("webp-quality");
+    let source = dir.join("noise.png");
+    RgbaImage::from_fn(64, 64, |x, y| {
+        ::image::Rgba([(x * 7) as u8, (y * 13) as u8, ((x + y) * 17) as u8, 255])
+    })
+    .save(&source)
+    .unwrap();
+
+    let low = run(
+        &options("webp"),
+        std::slice::from_ref(&source),
+        &Config {
+            webp_quality: Some(10),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let high = run(
+        &options("webp"),
+        std::slice::from_ref(&source),
+        &Config {
+            webp_quality: Some(95),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    assert!(
+        low[0].metadata().unwrap().len() < high[0].metadata().unwrap().len(),
+        "low quality should be smaller"
+    );
+}
+
+#[test]
+fn pdf_jpeg_is_opt_in() {
+    let dir = temp("pdf-jpeg");
+    let source = dir.join("noise.png");
+    RgbaImage::from_fn(64, 64, |x, y| {
+        ::image::Rgba([(x * 11) as u8, (y * 5) as u8, ((x * y) % 255) as u8, 255])
+    })
+    .save(&source)
+    .unwrap();
+
+    let lossless = run(
+        &options("pdf"),
+        std::slice::from_ref(&source),
+        &Config::default(),
+    )
+    .unwrap();
+    let jpeg = run(
+        &options("pdf"),
+        std::slice::from_ref(&source),
+        &Config {
+            pdf_jpeg: Some(true),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let bytes = std::fs::read(&jpeg[0]).unwrap();
+    assert!(bytes.windows(9).any(|window| window == b"DCTDecode"));
+    assert!(jpeg[0].metadata().unwrap().len() < lossless[0].metadata().unwrap().len());
+}

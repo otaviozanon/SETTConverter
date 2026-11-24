@@ -158,8 +158,8 @@ pub fn help() -> String {
         t("Menu do Explorer", "Explorer menu"),
         t("Config", "Config"),
         t(
-            "jpg_quality, webp_quality, out_dir, overwrite, ffmpeg, seven_zip",
-            "jpg_quality, webp_quality, out_dir, overwrite, ffmpeg, seven_zip"
+            "qualidade, PDF, video, audio, pastas e ferramentas",
+            "quality, PDF, video, audio, folders and tools"
         ),
         t("FFmpeg e 7-Zip", "FFmpeg and 7-Zip"),
     )

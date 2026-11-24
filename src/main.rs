@@ -80,6 +80,8 @@ fn execute(args: &[String]) -> Result<String> {
         } => {
             let config = config::load()?;
             naming::set_overwrite(options.force || config.overwrite.unwrap_or(false));
+            options.gpu |= config.gpu();
+            options.strip |= config.strip();
             if options.out.is_none() {
                 options.out = config.out_dir.clone().map(PathBuf::from);
             }

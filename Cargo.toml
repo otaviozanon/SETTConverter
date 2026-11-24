@@ -1,6 +1,6 @@
 [package]
 name = "settconverter"
-version = "1.2.5"
+version = "1.3.0"
 edition = "2024"
 description = "Conversor de arquivos portátil para Windows"
 repository = "https://github.com/otaviozanon/SETTConverter"
@@ -37,6 +37,7 @@ jxl-oxide = "0.12.6"
 quick-xml = "0.42.0"
 woofwoof = "1.0.2"
 sha2 = "0.11.1"
+webp = "0.3"
 
 [profile.release]
 opt-level = "s"

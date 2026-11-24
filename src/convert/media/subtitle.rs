@@ -32,6 +32,9 @@ pub fn subtitle(
         .unwrap_or_else(|| crate::naming::parent_of(input));
     let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), to)?;
     let mut command = base_command(&ffmpeg);
+    if let Some(encoding) = cfg.subtitle_encoding() {
+        command.args(["-sub_charenc", encoding]);
+    }
     command
         .args(["-i"])
         .arg(input)

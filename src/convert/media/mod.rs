@@ -10,7 +10,7 @@ use crate::config::Config;
 use crate::convert::Options;
 use crate::lang::t;
 
-use codecs::{avif_crf, codecs, codecs_cpu, uses_video_codec};
+use codecs::{avif_crf, codecs, codecs_cpu, frame_args, uses_video_codec, video_crf};
 pub use subtitle::subtitle;
 
 pub fn convert(
@@ -29,11 +29,14 @@ pub fn convert(
     if options.sheet {
         let out = crate::naming::claim(&dir, &format!("{stem}_contatos"), to)?;
         let mut command = base_command(&ffmpeg);
-        command
-            .args(["-i"])
-            .arg(input)
-            .args(["-vf", "fps=1/2,scale=320:-1,tile=4x4", "-frames:v", "1"])
-            .arg(&out);
+        command.args(["-i"]).arg(input).args([
+            "-vf",
+            "fps=1/2,scale=320:-1,tile=4x4",
+            "-frames:v",
+            "1",
+        ]);
+        frame_args(&mut command, to, options, cfg);
+        command.arg(&out);
         let output = crate::progress::run(
             &label(t("Folha de contatos", "Contact sheet"), input),
             &mut command,
@@ -68,11 +71,14 @@ pub fn convert(
     }
 
     if let Some(pattern) = &pattern {
+        frame_args(&mut command, to, options, cfg);
         command.args(["-fps_mode", "passthrough"]).arg(pattern);
     } else if options.at.is_some() {
-        command.args(["-frames:v", "1", "-q:v", "2"]).arg(&out);
+        command.args(["-frames:v", "1"]);
+        frame_args(&mut command, to, options, cfg);
+        command.arg(&out);
     } else {
-        codecs(&mut command, to, options)?;
+        codecs(&mut command, to, options, cfg)?;
         command.arg(&out);
     }
 
@@ -90,7 +96,7 @@ pub fn convert(
         if let Some(duration) = duration(options) {
             fallback.args(["-t", &duration]);
         }
-        codecs_cpu(&mut fallback, to)?;
+        codecs_cpu(&mut fallback, to, options, cfg)?;
         fallback.arg(&out);
         let retry =
             crate::progress::run(&label(t("Convertendo", "Converting"), input), &mut fallback)?;
@@ -114,7 +120,12 @@ pub fn convert(
     }
 }
 
-pub fn audio_cover(input: &Path, cfg: &Config, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
+pub fn audio_cover(
+    input: &Path,
+    cfg: &Config,
+    out_dir: Option<&Path>,
+    options: &Options,
+) -> Result<Vec<PathBuf>> {
     let ffmpeg = crate::tools::ffmpeg(cfg)?;
     let dir = out_dir
         .map(Path::to_path_buf)
@@ -128,8 +139,9 @@ pub fn audio_cover(input: &Path, cfg: &Config, out_dir: Option<&Path>) -> Result
     command
         .args(["-i"])
         .arg(input)
-        .args(["-map", "0:v:0", "-frames:v", "1", "-q:v", "2"])
-        .arg(&out);
+        .args(["-map", "0:v:0", "-frames:v", "1"]);
+    frame_args(&mut command, "jpg", options, cfg);
+    command.arg(&out);
     let output = crate::progress::run(
         &label(t("Extraindo capa", "Extracting cover"), input),
         &mut command,
@@ -161,32 +173,50 @@ pub fn animated_image(
     let out = crate::naming::claim(&dir, &crate::naming::stem_of(input), to)?;
     let mut command = base_command(&ffmpeg);
     command.args(["-i"]).arg(input);
+    let video = options.quality.or(cfg.video_quality());
     match to {
-        "gif" => command.args([
-            "-vf",
-            "split[a][b];[a]palettegen[p];[b][p]paletteuse",
-            "-loop",
-            "0",
-        ]),
-        "webp" => command.args(["-c:v", "libwebp_anim", "-loop", "0", "-q:v", "80"]),
-        "apng" => command.args(["-plays", "0", "-f", "apng"]),
-        "mp4" => command.args([
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-crf",
-            "23",
-            "-movflags",
-            "+faststart",
-        ]),
-        "webm" => command.args(["-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0"]),
+        "gif" => {
+            command.args([
+                "-vf",
+                "split[a][b];[a]palettegen[p];[b][p]paletteuse",
+                "-loop",
+                "0",
+            ]);
+        }
+        "webp" => {
+            let quality = options
+                .quality
+                .unwrap_or_else(|| cfg.webp_quality())
+                .to_string();
+            command.args(["-c:v", "libwebp_anim", "-loop", "0", "-quality", &quality]);
+        }
+        "apng" => {
+            command.args(["-plays", "0", "-f", "apng"]);
+        }
+        "mp4" => {
+            let crf = video_crf(video, 23, 51);
+            command.args([
+                "-c:v",
+                "libx264",
+                "-preset",
+                cfg.video_preset(),
+                "-pix_fmt",
+                "yuv420p",
+                "-crf",
+                &crf,
+                "-movflags",
+                "+faststart",
+            ]);
+        }
+        "webm" => {
+            let crf = video_crf(video, 32, 63);
+            command.args(["-c:v", "libvpx-vp9", "-crf", &crf, "-b:v", "0"]);
+        }
         other => bail!(
             "{} .{other}",
             t("animação para não suportada:", "animation to unsupported:")
         ),
     };
-    let _ = options;
     command.arg(&out);
     let output = crate::progress::run(
         &label(t("Convertendo animação", "Converting animation"), input),
@@ -224,14 +254,16 @@ pub fn still_image(
             ]);
         }
         "jpg" | "jpeg" => {
-            let jpeg_quality = (31 - (quality.min(100) as u16 * 29 / 100)).clamp(2, 31);
-            command.args(["-frames:v", "1", "-q:v", &jpeg_quality.to_string()]);
+            command.args(["-frames:v", "1", "-q:v", &codecs::jpeg_scale(quality)]);
         }
         "webp" => {
             command.args(["-frames:v", "1", "-quality", &quality.to_string()]);
         }
         _ => {
             command.args(["-frames:v", "1"]);
+            if to == "png" {
+                command.args(["-compression_level", &cfg.png_compression().to_string()]);
+            }
         }
     }
     command.arg(&out);

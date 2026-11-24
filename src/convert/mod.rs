@@ -101,14 +101,12 @@ fn one(options: &Options, input: &Path, config: &Config) -> Result<Vec<PathBuf>>
             t("formato não suportado:", "unsupported format:")
         )
     })?;
-    let quality = options.quality.unwrap_or_else(|| {
-        if options.to == "webp" {
-            config.webp_quality()
-        } else {
-            config.jpg_quality()
-        }
-    });
+    let quality = options
+        .quality
+        .unwrap_or_else(|| config.quality(&options.to));
     let out_dir = options.out.as_deref();
+    let width = options.width.or(config.pdf_width());
+    let dpi = options.dpi.or(config.pdf_dpi());
 
     match family {
         Family::Image | Family::Vector => {
@@ -120,17 +118,23 @@ fn one(options: &Options, input: &Path, config: &Config) -> Result<Vec<PathBuf>>
                 input,
                 &options.to,
                 out_dir,
-                options.width,
-                options.dpi,
-                quality,
+                pdf::render::RenderOptions {
+                    width,
+                    dpi,
+                    quality,
+                    png: config.png_compression(),
+                },
             ),
             "png" | "jpg" => pdf::render_pages(
                 input,
                 &options.to,
                 out_dir,
-                options.width,
-                options.dpi,
-                quality,
+                pdf::render::RenderOptions {
+                    width,
+                    dpi,
+                    quality,
+                    png: config.png_compression(),
+                },
             ),
             "pdf" => match options.split_every {
                 Some(every) => pdf::split(input, every, out_dir),
@@ -144,7 +148,7 @@ fn one(options: &Options, input: &Path, config: &Config) -> Result<Vec<PathBuf>>
         },
         Family::Video | Family::Audio => {
             if options.cover {
-                media::audio_cover(input, config, out_dir)
+                media::audio_cover(input, config, out_dir, options)
             } else {
                 media::convert(input, &options.to, config, out_dir, options)
             }

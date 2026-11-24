@@ -61,7 +61,7 @@ pub fn split(input: &Path, every: usize, out_dir: Option<&Path>) -> Result<Vec<P
     Ok(written)
 }
 
-pub fn from_images(paths: &[PathBuf], out: &Path) -> Result<()> {
+pub fn from_images(paths: &[PathBuf], out: &Path, jpeg: Option<u8>, dpi: f32) -> Result<()> {
     if paths.is_empty() {
         bail!("{}", t("nenhuma imagem encontrada", "no image found"));
     }
@@ -73,7 +73,7 @@ pub fn from_images(paths: &[PathBuf], out: &Path) -> Result<()> {
     for (index, path) in paths.iter().enumerate() {
         let part = temp.join(format!("{index}.pdf"));
         let built = crate::convert::image::decode(path)
-            .and_then(|image| crate::convert::image::to_pdf(&image, &part));
+            .and_then(|image| crate::convert::image::to_pdf(&image, &part, jpeg, dpi));
         if let Err(error) = built {
             let _ = std::fs::remove_dir_all(&temp);
             return Err(error).with_context(|| format!("converter {}", path.display()));

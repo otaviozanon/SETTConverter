@@ -1,17 +1,28 @@
 // Raster images, SVG and image to PDF.
 
 use anyhow::{Context, Result, bail};
-use image::{DynamicImage, ImageDecoder, ImageFormat, RgbaImage};
+use image::{DynamicImage, ImageDecoder, ImageEncoder, ImageFormat, RgbaImage};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
 use crate::lang::t;
 
+/// Encoder settings shared by every image target.
+#[derive(Clone, Copy)]
+pub struct SaveOptions {
+    pub quality: u8,
+    pub png: u8,
+    pub gif: u8,
+    pub ico: u32,
+    pub pdf_jpeg: Option<u8>,
+    pub pdf_dpi: f32,
+}
+
 pub fn convert(
     input: &Path,
     to: &str,
-    quality: u8,
+    save: SaveOptions,
     out_dir: Option<&Path>,
     size: Option<(u32, u32)>,
 ) -> Result<Vec<PathBuf>> {
@@ -28,10 +39,10 @@ pub fn convert(
     let mut img = decode(input)?;
     apply_size(&mut img, size);
     if to == "pdf" {
-        to_pdf(&img, &out)?;
+        to_pdf(&img, &out, save.pdf_jpeg, save.pdf_dpi)?;
         return Ok(vec![out.into_path()?]);
     }
-    save_image(&img, &out, to, quality)?;
+    save_image(&img, &out, to, save)?;
     Ok(vec![out.into_path()?])
 }
 
@@ -99,7 +110,7 @@ pub fn decode(input: &Path) -> Result<DynamicImage> {
 pub fn convert_svg(
     input: &Path,
     to: &str,
-    quality: u8,
+    save: SaveOptions,
     out_dir: Option<&Path>,
     size: Option<(u32, u32)>,
 ) -> Result<Vec<PathBuf>> {
@@ -143,26 +154,51 @@ pub fn convert_svg(
     let rgba = RgbaImage::from_raw(w, h, pixmap.data().to_vec()).context("bitmap do SVG")?;
     let mut image = DynamicImage::ImageRgba8(rgba);
     apply_size(&mut image, size);
-    save_image(&image, &out, to, quality)?;
+    save_image(&image, &out, to, save)?;
     Ok(vec![out.into_path()?])
 }
 
-pub fn save_image(img: &DynamicImage, out: &Path, to: &str, quality: u8) -> Result<()> {
+pub fn save_image(img: &DynamicImage, out: &Path, to: &str, save: SaveOptions) -> Result<()> {
     match to {
         "jpg" | "jpeg" => {
             let rgb = img.to_rgb8();
             let mut file = BufWriter::new(File::create(out)?);
-            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, quality)
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, save.quality)
                 .encode_image(&rgb)?;
         }
-        "png" => img.save_with_format(out, ImageFormat::Png)?,
-        "webp" => img.save_with_format(out, ImageFormat::WebP)?,
+        "png" => {
+            let mut file = BufWriter::new(File::create(out)?);
+            let encoder = image::codecs::png::PngEncoder::new_with_quality(
+                &mut file,
+                image::codecs::png::CompressionType::Level(save.png.min(9)),
+                image::codecs::png::FilterType::Adaptive,
+            );
+            img.write_with_encoder(encoder)?;
+        }
+        "webp" => {
+            let rgba = img.to_rgba8();
+            let encoder = webp::Encoder::from_rgba(rgba.as_raw(), rgba.width(), rgba.height());
+            // shortcut: WebP is always lossy here; 100 still re-encodes, never lossless.
+            let memory = encoder.encode(save.quality as f32);
+            std::fs::write(out, &*memory)?;
+        }
         // Animated sources and targets go through FFmpeg; here one frame is enough.
-        "gif" => img.save_with_format(out, ImageFormat::Gif)?,
+        "gif" => {
+            let rgba = img.to_rgba8();
+            let mut file = BufWriter::new(File::create(out)?);
+            // gif crate speed: 1 = best quality, 30 = smallest/fastest.
+            let speed = 1 + (100 - save.gif as u32) * 29 / 100;
+            image::codecs::gif::GifEncoder::new_with_speed(&mut file, speed as i32).write_image(
+                rgba.as_raw(),
+                rgba.width(),
+                rgba.height(),
+                image::ExtendedColorType::Rgba8,
+            )?;
+        }
         "bmp" => img.save_with_format(out, ImageFormat::Bmp)?,
         "tiff" | "tif" => img.save_with_format(out, ImageFormat::Tiff)?,
         "ico" => {
-            let icon = img.resize(256, 256, image::imageops::FilterType::Lanczos3);
+            let icon = img.resize(save.ico, save.ico, image::imageops::FilterType::Lanczos3);
             icon.to_rgba8().save_with_format(out, ImageFormat::Ico)?;
         }
         "tga" => img.save_with_format(out, ImageFormat::Tga)?,
@@ -179,15 +215,25 @@ pub fn save_image(img: &DynamicImage, out: &Path, to: &str, quality: u8) -> Resu
     Ok(())
 }
 
-pub fn to_pdf(img: &DynamicImage, out: &Path) -> Result<()> {
+pub fn to_pdf(img: &DynamicImage, out: &Path, jpeg: Option<u8>, dpi: f32) -> Result<()> {
     use lopdf::{Dictionary, Document, Object, Stream};
 
     let rgb = img.to_rgb8();
     let (w, h) = rgb.dimensions();
-    // 96 DPI keeps the page the physical size the picture has on screen.
-    let w_pt = w as f32 * 72.0 / 96.0;
-    let h_pt = h as f32 * 72.0 / 96.0;
+    let dpi = dpi.max(1.0);
+    let w_pt = w as f32 * 72.0 / dpi;
+    let h_pt = h as f32 * 72.0 / dpi;
     let mut doc = Document::with_version("1.5");
+
+    let (data, filter) = match jpeg {
+        Some(quality) => {
+            let mut data = Vec::new();
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut data, quality)
+                .encode_image(&rgb)?;
+            (data, Some("DCTDecode"))
+        }
+        None => (rgb.into_raw(), None),
+    };
 
     let mut image_dict = Dictionary::new();
     image_dict.set("Type", "XObject");
@@ -196,7 +242,10 @@ pub fn to_pdf(img: &DynamicImage, out: &Path) -> Result<()> {
     image_dict.set("Height", h as i64);
     image_dict.set("ColorSpace", "DeviceRGB");
     image_dict.set("BitsPerComponent", 8i64);
-    let image_id = doc.add_object(Stream::new(image_dict, rgb.into_raw()));
+    if let Some(filter) = filter {
+        image_dict.set("Filter", filter);
+    }
+    let image_id = doc.add_object(Stream::new(image_dict, data));
 
     let content = format!("q {w_pt} 0 0 {h_pt} 0 0 cm /Im0 Do Q");
     let content_id = doc.add_object(Stream::new(Dictionary::new(), content.into_bytes()));

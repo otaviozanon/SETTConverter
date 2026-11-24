@@ -7,14 +7,14 @@ use crate::config::Config;
 use crate::lang::t;
 
 pub fn ffmpeg(cfg: &Config) -> Result<PathBuf> {
-    find(cfg.ffmpeg.as_deref(), "ffmpeg.exe")
+    find(cfg.ffmpeg.as_deref(), "ffmpeg.exe", cfg.download_tools())
 }
 
 pub fn seven_zip(cfg: &Config) -> Result<PathBuf> {
-    find(cfg.seven_zip.as_deref(), "7z.exe")
+    find(cfg.seven_zip.as_deref(), "7z.exe", cfg.download_tools())
 }
 
-fn find(configured: Option<&str>, name: &str) -> Result<PathBuf> {
+fn find(configured: Option<&str>, name: &str, download: bool) -> Result<PathBuf> {
     if let Some(configured) = configured {
         let path = PathBuf::from(configured);
         if path.is_file() {
@@ -27,6 +27,16 @@ fn find(configured: Option<&str>, name: &str) -> Result<PathBuf> {
     let cached = dir().join(name);
     if cached.is_file() {
         return Ok(cached);
+    }
+    if !download {
+        bail!(
+            "{} {name}. {}",
+            t("não encontrado:", "not found:"),
+            t(
+                "instale-o ou defina o caminho no SETTConverter.toml",
+                "install it or set its path in SETTConverter.toml"
+            )
+        );
     }
     super::ensure()?;
     if cached.is_file() {

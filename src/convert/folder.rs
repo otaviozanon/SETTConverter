@@ -42,7 +42,9 @@ pub(super) fn folder(options: &Options, dir: &Path, config: &Config) -> Result<V
                 );
             }
             let out = crate::naming::claim(&out_dir, &stem, "pdf")?;
-            super::pdf::from_images(&images, &out)?;
+            let quality = options.quality.unwrap_or_else(|| config.quality("pdf"));
+            let jpeg = config.pdf_jpeg().then_some(quality);
+            super::pdf::from_images(&images, &out, jpeg, config.image_pdf_dpi())?;
             return Ok(vec![out.into_path()?]);
         }
         other => {

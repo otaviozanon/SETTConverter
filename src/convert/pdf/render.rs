@@ -1,19 +1,26 @@
 // PDF page rendering through the embedded PDFium.
 
 use anyhow::{Context, Result, bail};
-use image::{DynamicImage, RgbaImage};
+use image::{DynamicImage, ImageEncoder, RgbaImage};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::lang::t;
 
+/// Settings shared by page and long-image rendering.
+#[derive(Clone, Copy)]
+pub struct RenderOptions {
+    pub width: Option<u32>,
+    pub dpi: Option<u32>,
+    pub quality: u8,
+    pub png: u8,
+}
+
 pub fn render_pages(
     input: &Path,
     to: &str,
     out_dir: Option<&Path>,
-    width: Option<u32>,
-    dpi: Option<u32>,
-    quality: u8,
+    options: RenderOptions,
 ) -> Result<Vec<PathBuf>> {
     let input_owned = input.to_path_buf();
     let out_owned = out_dir.map(Path::to_path_buf);
@@ -31,9 +38,7 @@ pub fn render_pages(
             &input_owned,
             &to_owned,
             out_owned.as_deref(),
-            width,
-            dpi,
-            quality,
+            options,
             cancel,
         )
     })
@@ -43,11 +48,15 @@ fn render_pages_inner(
     input: &Path,
     to: &str,
     out_dir: Option<&Path>,
-    width: Option<u32>,
-    dpi: Option<u32>,
-    quality: u8,
+    options: RenderOptions,
     cancel: &AtomicBool,
 ) -> Result<Vec<PathBuf>> {
+    let RenderOptions {
+        width,
+        dpi,
+        quality,
+        png,
+    } = options;
     with_pdfium(|pdfium| {
         let document = pdfium
             .load_pdf_from_file(input, None)
@@ -82,7 +91,18 @@ fn render_pages_inner(
                 image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, quality)
                     .encode_image(&rgba)?;
             } else {
-                rgba.save_with_format(&out, image::ImageFormat::Png)?;
+                let mut file = std::io::BufWriter::new(std::fs::File::create(&out)?);
+                image::codecs::png::PngEncoder::new_with_quality(
+                    &mut file,
+                    image::codecs::png::CompressionType::Level(png.min(9)),
+                    image::codecs::png::FilterType::Adaptive,
+                )
+                .write_image(
+                    rgba.as_raw(),
+                    w,
+                    h,
+                    image::ExtendedColorType::Rgba8,
+                )?;
             }
             written.push(out);
         }
@@ -95,9 +115,7 @@ pub fn render_long(
     input: &Path,
     to: &str,
     out_dir: Option<&Path>,
-    width: Option<u32>,
-    dpi: Option<u32>,
-    quality: u8,
+    options: RenderOptions,
 ) -> Result<Vec<PathBuf>> {
     let input_owned = input.to_path_buf();
     let out_owned = out_dir.map(Path::to_path_buf);
@@ -115,9 +133,7 @@ pub fn render_long(
             &input_owned,
             &to_owned,
             out_owned.as_deref(),
-            width,
-            dpi,
-            quality,
+            options,
             cancel,
         )
     })
@@ -127,11 +143,15 @@ fn render_long_inner(
     input: &Path,
     to: &str,
     out_dir: Option<&Path>,
-    width: Option<u32>,
-    dpi: Option<u32>,
-    quality: u8,
+    options: RenderOptions,
     cancel: &AtomicBool,
 ) -> Result<Vec<PathBuf>> {
+    let RenderOptions {
+        width,
+        dpi,
+        quality,
+        png,
+    } = options;
     with_pdfium(|pdfium| {
         let document = pdfium
             .load_pdf_from_file(input, None)
@@ -182,7 +202,15 @@ fn render_long_inner(
             &format!("{}_longa", crate::naming::stem_of(input)),
             to,
         )?;
-        crate::convert::image::save_image(&DynamicImage::ImageRgba8(canvas), &out, to, quality)?;
+        let save = crate::convert::image::SaveOptions {
+            quality,
+            png,
+            gif: 100,
+            ico: 256,
+            pdf_jpeg: None,
+            pdf_dpi: 96.0,
+        };
+        crate::convert::image::save_image(&DynamicImage::ImageRgba8(canvas), &out, to, save)?;
         Ok(vec![out.into_path()?])
     })
 }
